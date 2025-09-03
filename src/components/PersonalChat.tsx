@@ -12,7 +12,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Send, Paperclip, File as FileIcon, Video, PhoneOff, Lock, X } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
-import { CardHeader, CardTitle } from './ui/card';
+import { CardHeader, CardTitle, CardDescription } from './ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import Image from 'next/image';
@@ -130,8 +130,15 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
                 const isFollowedBy = otherUserData.followers?.includes(user.uid);
                 setHasMutualFollow(!!isFollowing && !!isFollowedBy);
               }
+            }).catch(e => {
+                console.error("Error fetching other user's profile", e);
+                if (isMounted.current) setLoading(false);
             });
+          } else {
+            if (isMounted.current) setLoading(false);
           }
+        } else {
+             if (isMounted.current) setLoading(false);
         }
       });
       
@@ -141,7 +148,10 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
         if (!isMounted.current) return;
         setMessages(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
         setLoading(false);
-      }, () => { if (isMounted.current) setLoading(false); });
+      }, (err) => { 
+        console.error("Error fetching messages:", err);
+        if (isMounted.current) setLoading(false);
+      });
 
     } else {
         if (isMounted.current) setLoading(false);
@@ -169,11 +179,13 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
         if (!isMounted.current) return;
         if (!snapshot.empty) {
             const callNotification = {id: snapshot.docs[0].id, ...snapshot.docs[0].data()} as Notification;
-            if(callStatus === 'idle') {
+            // Prevent re-triggering for the same call
+            if(callStatus === 'idle' && incomingCall?.id !== callNotification.id) {
                 setIncomingCall(callNotification);
                 setCallStatus('receiving');
             }
         } else {
+            // If the notification is gone and we are in 'receiving' state, clean up.
             if(callStatus === 'receiving') {
                 cleanupCall();
             }
@@ -181,7 +193,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     });
 
     return () => unsubscribe();
-}, [user?.uid, callStatus, cleanupCall]);
+}, [user?.uid, callStatus, cleanupCall, incomingCall]);
 
  useEffect(() => {
     if (callStatus === 'receiving' && incomingCall) {
@@ -198,6 +210,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
                 </div>
             ),
              onClose: () => {
+                 // Check if the call is still in receiving state when the toast times out
                  if (callStatus === 'receiving') {
                     handleDeclineCall(incomingCall.link, incomingCall.id);
                  }
@@ -214,7 +227,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     if (remoteVideoRef.current && remoteStream.current) {
       remoteVideoRef.current.srcObject = remoteStream.current;
     }
-  }, [callStatus]);
+  }, [callStatus, localStream, remoteStream]);
 
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -318,9 +331,11 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     
     try {
         localStream.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        if (localVideoRef.current) localVideoRef.current.srcObject = localStream.current;
-        setCallStatus('calling');
+        if(isMounted.current) {
+            setCallStatus('calling');
+        }
     } catch (e) {
+        console.error("Error accessing media devices.", e);
         toast({ title: "Error", description: "Could not access camera or microphone.", variant: "destructive" });
         cleanupCall();
         return;
@@ -331,13 +346,13 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     });
 
     pc.current.ontrack = (event) => {
-        if (!remoteStream.current) {
-            remoteStream.current = new MediaStream();
-            if (remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = remoteStream.current;
-            }
+        const stream = event.streams[0];
+        if (isMounted.current) {
+            remoteStream.current = stream;
         }
-        remoteStream.current.addTrack(event.track);
+        if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = stream;
+        }
     };
 
     const callDocRef = doc(collection(db, 'personalChats', chatId, 'calls'));
@@ -363,13 +378,15 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     const unsubCallDoc = onSnapshot(callDocRef, (snapshot) => {
         if (!isMounted.current) return;
         const data = snapshot.data();
-        if (data?.status === 'ended' || data?.status === 'declined' || !snapshot.exists()) {
+        if (!snapshot.exists() || data?.status === 'ended' || data?.status === 'declined') {
             cleanupCall();
             return;
         }
         if (pc.current && !pc.current.currentRemoteDescription && data?.answer) {
             pc.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-            setCallStatus('connected');
+             if (isMounted.current) {
+                setCallStatus('connected');
+            }
         }
     });
 
@@ -387,38 +404,36 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
 
   const handleAnswerCall = async (callDocId: string, notificationId: string) => {
       if (!user || callStatus !== 'receiving') return;
-      
-      setIncomingCall(null);
+
       if(toastIdRef.current) {
         dismiss(toastIdRef.current);
         toastIdRef.current = null;
       }
+      
       pc.current = new RTCPeerConnection(servers);
+      setCallId(callDocId);
       
       try {
         localStream.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        if (localVideoRef.current) localVideoRef.current.srcObject = localStream.current;
       } catch (e) {
+          console.error("Error accessing media devices on answer.", e);
           toast({ title: "Error", description: "Could not access camera or microphone.", variant: "destructive" });
           await handleDeclineCall(callDocId, notificationId);
-          cleanupCall();
           return;
       }
-      
-      setCallId(callDocId);
       
       localStream.current.getTracks().forEach(track => {
           pc.current!.addTrack(track, localStream.current!);
       });
 
       pc.current.ontrack = (event) => {
-          if (!remoteStream.current) {
-              remoteStream.current = new MediaStream();
-              if (remoteVideoRef.current) {
-                  remoteVideoRef.current.srcObject = remoteStream.current;
-              }
+          const stream = event.streams[0];
+          if(isMounted.current) {
+             remoteStream.current = stream;
           }
-          remoteStream.current.addTrack(event.track);
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = stream;
+          }
       };
       
       const callDocRef = doc(db, 'personalChats', chatId, 'calls', callDocId);
@@ -447,8 +462,11 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
       batch.update(callDocRef, { answer, status: 'active' });
       batch.delete(doc(db, 'notifications', notificationId));
       await batch.commit();
-      
-      setCallStatus('connected');
+
+      if (isMounted.current) {
+          setIncomingCall(null);
+          setCallStatus('connected');
+      }
 
       const unsubOfferCandidates = onSnapshot(offerCandidates, (snapshot) => {
           if (!isMounted.current) return;
@@ -471,7 +489,6 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
   const handleDeclineCall = async (callIdToDecline: string, notificationId: string) => {
     if (!notificationId || !callIdToDecline) return;
 
-    setIncomingCall(null);
     if(toastIdRef.current) {
         dismiss(toastIdRef.current);
         toastIdRef.current = null;
@@ -577,9 +594,9 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
 
       <Dialog open={isVideoOpen} onOpenChange={(open) => { if (!open && callStatus !== 'idle') handleHangup(); }}>
         <DialogContent className="max-w-4xl p-0 border-0 bg-black text-white">
-            <DialogHeader>
-                <DialogTitle className="sr-only">Video Call</DialogTitle>
-                <DialogDescription className="sr-only">Video call with {chatInfo?.otherUser?.name || 'your buddy'}.</DialogDescription>
+            <DialogHeader className="sr-only">
+                <DialogTitle>Video Call</DialogTitle>
+                <DialogDescription>Video call with {chatInfo?.otherUser?.name || 'your buddy'}.</DialogDescription>
             </DialogHeader>
             <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden rounded-md">
                 <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
@@ -600,5 +617,3 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     </div>
   );
 }
-
-    
