@@ -19,6 +19,7 @@ import { CalendarDays, Users, Trash2, UserCheck, UserX, Send, Phone } from 'luci
 import { format } from 'date-fns';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ProjectChat } from '@/components/ProjectChat';
 
 interface EnrichedTeamMember {
   userId: string;
@@ -459,9 +460,13 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
              <Card className="sticky top-20">
                 <CardHeader><CardTitle>Group Chat</CardTitle></CardHeader>
                 <CardContent>
+                   {isUserInSquad ? (
+                       <ProjectChat projectId={project.id} />
+                   ) : (
                     <div className="text-center p-8 bg-muted rounded-lg">
-                        <p className="text-muted-foreground">Chat is temporarily disabled.</p>
+                        <p className="text-muted-foreground">You must be a member of this squad to view the chat.</p>
                     </div>
+                   )}
                 </CardContent>
             </Card>
           </div>

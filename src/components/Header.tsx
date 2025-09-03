@@ -21,7 +21,9 @@ import { markNotificationsAsRead, db } from "@/lib/firebase-client";
 import { cn } from "@/lib/utils";
 import type { Notification } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { doc, writeBatch, arrayUnion, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, writeBatch, arrayUnion, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
+import { useRouter } from "next/navigation";
+
 
 const NavLinks = ({isMobile = false}: {isMobile?: boolean}) => {
   const { user } = useAuth();
@@ -29,12 +31,16 @@ const NavLinks = ({isMobile = false}: {isMobile?: boolean}) => {
   <>
     <Link href="/projects" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">Projects</Link>
     <Link href="/profiles" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">Profiles</Link>
+    {user && (
+      <Link href="/chats" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">Chats</Link>
+    )}
   </>
 )};
 
 export function Header() {
   const { user, userProfile, loading, signOut, notifications, setNotifications } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
 
   const getInitials = (name?: string) => {
     if (!name) return 'U';
@@ -86,7 +92,7 @@ export function Header() {
         message: `${userProfile.name} accepted your follow request.`,
         link: `/profiles/${user.uid}`,
         isRead: false,
-        createdAt: new Date(),
+        createdAt: serverTimestamp(),
       })
 
 
@@ -139,6 +145,39 @@ export function Header() {
               <div className="h-10 w-20 animate-pulse rounded-md bg-muted" />
             ) : user ? (
               <>
+                <DropdownMenu onOpenChange={handleOpenNotifications}>
+                  <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="relative">
+                          <Bell />
+                          {hasUnread && <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-accent" />}
+                      </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-80" align="end">
+                      <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {notifications.length === 0 ? (
+                           <DropdownMenuItem disabled>No new notifications</DropdownMenuItem>
+                      ) : (
+                         notifications.map(notif => (
+                            <DropdownMenuItem key={notif.id} className={cn(!notif.isRead && "font-bold")} onSelect={(e) => {
+                                e.preventDefault();
+                                router.push(notif.link);
+                            }}>
+                                <div className="flex flex-col w-full">
+                                    <p className="text-sm truncate whitespace-normal">{notif.message}</p>
+                                    {notif.type === 'follow_request' && notif.status !== 'accepted' && (
+                                        <div className="flex gap-2 mt-2">
+                                            <Button size="sm" onClick={(e) => handleAcceptRequest(notif, e)}>Accept</Button>
+                                            {/* <Button size="sm" variant="outline">Decline</Button> */}
+                                        </div>
+                                    )}
+                                </div>
+                            </DropdownMenuItem>
+                         ))
+                      )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-8 w-8 rounded-full">

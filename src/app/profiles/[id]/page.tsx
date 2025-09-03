@@ -26,7 +26,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const profileFormSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -56,18 +55,17 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
 
   const isOwnProfile = useMemo(() => user?.uid === id, [user, id]);
   const isFollowing = useMemo(() => currentUserProfile?.following?.includes(id), [currentUserProfile, id]);
-  const isFollowedBy = useMemo(() => userProfile?.followers?.includes(user?.uid ?? ''), [userProfile, user]);
+  const isFollowedBy = useMemo(() => currentUserProfile?.followers?.includes(id), [currentUserProfile, id]);
   const hasMutualFollow = useMemo(() => isFollowing && isFollowedBy, [isFollowing, isFollowedBy]);
   const sentRequest = useMemo(() => followRequest?.status === 'pending' && followRequest.fromUserId === user?.uid, [followRequest, user]);
   const receivedRequest = useMemo(() => followRequest?.status === 'pending' && followRequest.toUserId === user?.uid, [followRequest, user]);
-
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
   });
 
   const fetchProfileData = async () => {
-      if (!id || !user) return;
+      if (!id) return;
       setLoading(true);
       try {
         // Fetch user profile
@@ -83,19 +81,21 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
           const projectSnapshots = await getDocs(projectsQuery);
           const projectsData = projectSnapshots.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
           setUserProjects(projectsData);
-
-           // Fetch follow request status
-          const followRequestQuery1 = query(collection(db, 'followRequests'), where('fromUserId', '==', user.uid), where('toUserId', '==', id));
-          const followRequestQuery2 = query(collection(db, 'followRequests'), where('fromUserId', '==', id), where('toUserId', '==', user.uid));
           
-          const [requestSnap1, requestSnap2] = await Promise.all([getDocs(followRequestQuery1), getDocs(followRequestQuery2)]);
-          
-          if(!requestSnap1.empty) {
-            setFollowRequest({id: requestSnap1.docs[0].id, ...requestSnap1.docs[0].data()} as FollowRequest);
-          } else if (!requestSnap2.empty) {
-            setFollowRequest({id: requestSnap2.docs[0].id, ...requestSnap2.docs[0].data()} as FollowRequest);
-          } else {
-            setFollowRequest(null);
+           // Fetch follow request status only if not own profile
+          if (user && user.uid !== id) {
+            const requestQuery1 = query(collection(db, 'followRequests'), where('fromUserId', '==', user.uid), where('toUserId', '==', id));
+            const requestQuery2 = query(collection(db, 'followRequests'), where('fromUserId', '==', id), where('toUserId', '==', user.uid));
+            
+            const [requestSnap1, requestSnap2] = await Promise.all([getDocs(requestQuery1), getDocs(requestQuery2)]);
+            
+            if(!requestSnap1.empty) {
+              setFollowRequest({id: requestSnap1.docs[0].id, ...requestSnap1.docs[0].data()} as FollowRequest);
+            } else if (!requestSnap2.empty) {
+              setFollowRequest({id: requestSnap2.docs[0].id, ...requestSnap2.docs[0].data()} as FollowRequest);
+            } else {
+              setFollowRequest(null);
+            }
           }
           
         } else {
@@ -268,9 +268,12 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
             transaction.update(targetUserRef, { followers: arrayRemove(user.uid) });
 
             // Also delete any existing follow requests between them
-            const requestQuery = query(collection(db, 'followRequests'), where('fromUserId', 'in', [user.uid, id]), where('toUserId', 'in', [user.uid, id]));
-            const requestDocs = await getDocs(requestQuery);
-            requestDocs.forEach(doc => transaction.delete(doc.ref));
+            const requestQuery1 = query(collection(db, 'followRequests'), where('fromUserId', '==', user.uid), where('toUserId', '==', id));
+            const requestQuery2 = query(collection(db, 'followRequests'), where('fromUserId', '==', id), where('toUserId', '==', user.uid));
+            const [requestDocs1, requestDocs2] = await Promise.all([getDocs(requestQuery1), getDocs(requestQuery2)]);
+            
+            requestDocs1.forEach(d => transaction.delete(d.ref));
+            requestDocs2.forEach(d => transaction.delete(d.ref));
         });
 
         await Promise.all([refreshUserProfile(), fetchProfileData()]);
@@ -287,6 +290,13 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
         });
     }
   }
+
+  const handleNavigateToChat = () => {
+    if (!user || !userProfile) return;
+    const chatId = [user.uid, userProfile.id].sort().join('_');
+    router.push(`/chats?type=personal&id=${chatId}`);
+  };
+
 
   const getFollowButton = () => {
       if (isOwnProfile || !user) return null;
@@ -529,6 +539,9 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
                 user && (
                   <>
                     {getFollowButton()}
+                    {hasMutualFollow && (
+                        <Button onClick={handleNavigateToChat} className="w-full mt-2"><MessageSquare className="mr-2 h-4 w-4"/>Message</Button>
+                    )}
                   </>
                 )
             )}
