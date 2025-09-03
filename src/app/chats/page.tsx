@@ -10,7 +10,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { collection, query, where, getDocs, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase-client';
 import { useSearchParams } from 'next/navigation';
-import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
+import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -194,12 +194,13 @@ const ChatsPage: NextPage = () => {
   return (
     <div className="flex flex-col h-screen bg-background">
       <Header />
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center">Loading...</div>}>
-         <ChatPageContent />
-      </Suspense>
+      <SidebarProvider>
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center">Loading...</div>}>
+            <ChatPageContent />
+        </Suspense>
+      </SidebarProvider>
     </div>
   );
 };
 
 export default ChatsPage;
-
