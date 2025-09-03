@@ -10,7 +10,7 @@ import { useAuth } from '@/hooks/useAuth';
 import type { Message, User, PersonalChat as PersonalChatType, Call } from '@/lib/types';
 import { db } from '@/lib/firebase-client';
 import { doc, getDoc, collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, setDoc, writeBatch, updateDoc, deleteDoc, where } from 'firebase/firestore';
-import { Send, Frown, Phone, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
+import { Send, Frown, Phone, Mic, MicOff, Video, VideoOff, PhoneOff, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { Skeleton } from './ui/skeleton';
 import { Alert, AlertTitle, AlertDescription } from './ui/alert';
@@ -30,7 +30,7 @@ const servers = {
 
 
 export function PersonalChat({ chatId }: { chatId: string }) {
-  const { user, userProfile, handleCallAction } = useAuth();
+  const { user, userProfile } = useAuth();
   const searchParams = useSearchParams();
   const { toast } = useToast();
 
@@ -50,6 +50,11 @@ export function PersonalChat({ chatId }: { chatId: string }) {
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isMounted = useRef(true);
+
+  const areMutuals = React.useMemo(() => {
+    if (!userProfile || !otherUser) return false;
+    return userProfile.following.includes(otherUser.id) && otherUser.following.includes(userProfile.id);
+  }, [userProfile, otherUser]);
 
   const cleanupCall = useCallback(async () => {
     console.log("Cleaning up call...");
@@ -83,21 +88,15 @@ export function PersonalChat({ chatId }: { chatId: string }) {
       try {
         // 1. Setup Chat
         const chatDocRef = doc(db, 'personalChats', chatId);
-        const chatDoc = await getDoc(chatDocRef);
         const otherUserId = chatId.replace(user.uid, '').replace('_', '');
 
         // Fetch other user's data first
         const userDoc = await getDoc(doc(db, 'users', otherUserId));
         if (userDoc.exists() && isMounted.current) {
             setOtherUser({ id: userDoc.id, ...userDoc.data() } as User);
-        }
-
-        if (!chatDoc.exists()) {
-             await setDoc(chatDocRef, {
-                participants: [user.uid, otherUserId],
-                createdAt: serverTimestamp(),
-                lastMessage: null,
-            });
+        } else {
+            if (isMounted.current) setLoading(false);
+            return;
         }
         
         const messagesCollectionRef = collection(db, `personalChats/${chatId}/messages`);
@@ -143,10 +142,10 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
    // Effect to handle URL action to start a call
   useEffect(() => {
-    if (searchParams.get('action') === 'call' && callState === 'idle' && otherUser && userProfile) {
+    if (searchParams.get('action') === 'call' && callState === 'idle' && otherUser && userProfile && areMutuals) {
         startCall(otherUser);
     }
-  }, [searchParams, callState, otherUser, userProfile]);
+  }, [searchParams, callState, otherUser, userProfile, areMutuals]);
 
   // Effect to listen for changes on the specific call document
   useEffect(() => {
@@ -191,7 +190,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
 
   const startCall = async (targetUser: User) => {
-    if (!user || !userProfile) return;
+    if (!user || !userProfile || !areMutuals) return;
 
     setCallState('calling');
     peerConnection.current = new RTCPeerConnection(servers);
@@ -208,7 +207,6 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
     const callDocRef = doc(collection(db, 'calls'));
     const offerCandidates = collection(callDocRef, 'callerCandidates');
-    const answerCandidates = collection(callDocRef, 'calleeCandidates');
     
     // Get candidates for caller, save to db
     peerConnection.current.onicecandidate = event => {
@@ -335,7 +333,8 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user || !userProfile || !otherUser) return;
+    if (!newMessage.trim() || !user || !userProfile || !otherUser || !areMutuals) return;
+    
     const chatDocRef = doc(db, 'personalChats', chatId);
     const messagesCollectionRef = collection(chatDocRef, 'messages');
     try {
@@ -350,6 +349,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
             text: newMessage, createdAt: serverTimestamp(),
         });
         setNewMessage('');
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     } catch (error) {
         console.error("Error sending message:", error);
     }
@@ -421,7 +421,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
             </Avatar>
             <CardTitle>{otherUser.name}</CardTitle>
         </div>
-        <Button onClick={() => startCall(otherUser)} size="icon" variant="outline"><Phone className="h-4 w-4"/></Button>
+        <Button onClick={() => startCall(otherUser)} size="icon" variant="outline" disabled={!areMutuals}><Phone className="h-4 w-4"/></Button>
       </CardHeader>
       <CardContent className="flex-1 p-4 overflow-y-auto space-y-4">
         {messages.map(msg => (
@@ -429,7 +429,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
                 {msg.senderId !== user?.uid && (
                     <Avatar className="h-8 w-8">
                         <AvatarImage src={msg.senderAvatarUrl} alt={msg.senderName} />
-                        <AvatarFallback>{msg.senderName.charAt(0)}</AvatarFallback>
+                        <AvatarFallback>{msg.senderName ? msg.senderName.charAt(0) : 'U'}</AvatarFallback>
                     </Avatar>
                 )}
                  <div className={`flex flex-col space-y-1 max-w-xs md:max-w-md ${msg.senderId === user?.uid ? 'items-end' : 'items-start'}`}>
@@ -449,10 +449,11 @@ export function PersonalChat({ chatId }: { chatId: string }) {
             <Input 
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type a message..."
+                placeholder={!areMutuals ? "You must both follow each other to chat." : "Type a message..."}
                 autoComplete="off"
+                disabled={!areMutuals}
             />
-            <Button type="submit" size="icon" disabled={!newMessage.trim()}>
+            <Button type="submit" size="icon" disabled={!newMessage.trim() || !areMutuals}>
                 <Send className="h-4 w-4" />
             </Button>
         </form>
