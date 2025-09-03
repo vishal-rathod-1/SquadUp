@@ -76,6 +76,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setLoading(true);
       if (user) {
         setUser(user);
         const userDocRef = doc(db, "users", user.uid);
@@ -125,12 +126,10 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   useEffect(() => {
     if (user) {
       const notifsRef = collection(db, 'notifications');
-      // Query without ordering to prevent index error
       const q = query(notifsRef, where('userId', '==', user.uid));
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
-        // Sort on the client-side after fetching
         notifs.sort((a, b) => {
           const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
           const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;

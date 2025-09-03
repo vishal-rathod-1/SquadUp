@@ -96,7 +96,25 @@ export function PersonalChat({ chatId }: { chatId: string }) {
         const otherUserId = chatId.replace(user.uid, '').replace('_', '');
         const userDoc = await getDoc(doc(db, 'users', otherUserId));
         if (userDoc.exists() && isMounted.current) {
-            setOtherUser({ id: userDoc.id, ...userDoc.data() } as User);
+            const fetchedOtherUser = { id: userDoc.id, ...userDoc.data() } as User;
+            setOtherUser(fetchedOtherUser);
+            
+            // 2. Setup Call Listeners & handle incoming calls from this specific user
+            const callQuery = query(
+              collection(db, 'calls'), 
+              where('calleeId', '==', user.uid), 
+              where('callerId', '==', fetchedOtherUser.id),
+              where('status', '==', 'pending')
+            );
+            unsubscribeCall = onSnapshot(callQuery, (snapshot) => {
+                if (!isMounted.current) return;
+                if (!snapshot.empty) {
+                    const call = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Call;
+                    setCallData(call);
+                    setCallState('receiving');
+                }
+            });
+
         } else {
             if (isMounted.current) setLoading(false);
             return;
@@ -120,22 +138,6 @@ export function PersonalChat({ chatId }: { chatId: string }) {
             });
         }
         
-        // 2. Setup Call Listeners & handle incoming calls from this specific user
-        const callQuery = query(
-          collection(db, 'calls'), 
-          where('calleeId', '==', user.uid), 
-          where('callerId', '==', otherUserId),
-          where('status', '==', 'pending')
-        );
-        unsubscribeCall = onSnapshot(callQuery, (snapshot) => {
-            if (!isMounted.current) return;
-            if (!snapshot.empty) {
-                const call = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Call;
-                setCallData(call);
-                setCallState('receiving');
-            }
-        });
-
       } catch (error) {
         console.error("Error setting up chat/call:", error);
       } finally {
