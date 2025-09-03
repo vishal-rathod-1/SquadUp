@@ -75,7 +75,6 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     if (!chatId || !user) return;
     
     let unsubscribeMessages: () => void;
-    let unsubscribeChat: () => void;
     let unsubscribeCall: () => void;
     
     setLoading(true);
@@ -84,19 +83,23 @@ export function PersonalChat({ chatId }: { chatId: string }) {
       try {
         // 1. Setup Chat
         const chatDocRef = doc(db, 'personalChats', chatId);
-        unsubscribeChat = onSnapshot(chatDocRef, async (chatDoc) => {
-          if (!isMounted.current) return;
-          if (chatDoc.exists()) {
-            const otherUserId = chatDoc.data().participants.find(p => p !== user.uid);
-            if (otherUserId && !otherUser) {
-              const userDoc = await getDoc(doc(db, 'users', otherUserId));
-              if (userDoc.exists() && isMounted.current) {
-                setOtherUser({ id: userDoc.id, ...userDoc.data() } as User);
-              }
-            }
-          }
-        });
+        const chatDoc = await getDoc(chatDocRef);
+        const otherUserId = chatId.replace(user.uid, '').replace('_', '');
 
+        // Fetch other user's data first
+        const userDoc = await getDoc(doc(db, 'users', otherUserId));
+        if (userDoc.exists() && isMounted.current) {
+            setOtherUser({ id: userDoc.id, ...userDoc.data() } as User);
+        }
+
+        if (!chatDoc.exists()) {
+             await setDoc(chatDocRef, {
+                participants: [user.uid, otherUserId],
+                createdAt: serverTimestamp(),
+                lastMessage: null,
+            });
+        }
+        
         const messagesCollectionRef = collection(db, `personalChats/${chatId}/messages`);
         const q = query(messagesCollectionRef, orderBy('createdAt', 'asc'));
         unsubscribeMessages = onSnapshot(q, (querySnapshot) => {
@@ -132,7 +135,6 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     return () => {
       isMounted.current = false;
       if (unsubscribeMessages) unsubscribeMessages();
-      if (unsubscribeChat) unsubscribeChat();
       if (unsubscribeCall) unsubscribeCall();
       cleanupCall();
     };
