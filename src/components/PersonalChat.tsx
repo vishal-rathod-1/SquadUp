@@ -109,7 +109,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     let unsubscribeMessages: () => void = () => {};
     let unsubscribeChatInfo: () => void = () => {};
 
-    if (user && userProfile) {
+    if (user?.uid && userProfile) {
       setLoading(true);
       const chatDocRef = doc(db, 'personalChats', chatId);
       unsubscribeChatInfo = onSnapshot(chatDocRef, (chatDoc) => {
@@ -162,7 +162,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
       unsubscribeChatInfo();
       cleanupCall();
     };
-  }, [chatId, user, userProfile, cleanupCall]);
+  }, [chatId, user?.uid, cleanupCall]);
 
    useEffect(() => {
     if (!user?.uid) return;
@@ -593,9 +593,9 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
 
       <Dialog open={isVideoOpen} onOpenChange={(open) => { if (!open && callStatus !== 'idle') handleHangup(); }}>
         <DialogContent className="max-w-4xl p-0 border-0 bg-black text-white">
-            <DialogHeader className="sr-only">
-                <DialogTitle>Video Call</DialogTitle>
-                <DialogDescription>Video call with {chatInfo?.otherUser?.name || 'your buddy'}.</DialogDescription>
+            <DialogHeader>
+                <DialogTitle className="sr-only">Video Call</DialogTitle>
+                <DialogDescription className="sr-only">Video call with {chatInfo?.otherUser?.name || 'your buddy'}.</DialogDescription>
             </DialogHeader>
             <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden rounded-md">
                 <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
