@@ -35,6 +35,8 @@ const ChatPageContent: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const { user } = useAuth();
   const searchParams = useSearchParams();
+  const chatTypeFromUrl = searchParams.get('type');
+  const chatIdFromUrl = searchParams.get('id');
 
   useEffect(() => {
     const fetchUserChats = async () => {
@@ -104,23 +106,19 @@ const ChatPageContent: React.FC = () => {
   }, [user]);
   
   useEffect(() => {
-    const chatType = searchParams.get('type');
-    const chatId = searchParams.get('id');
-
-    if ((chatType === 'project' || chatType === 'personal') && chatId && !loading) {
+    if ((chatTypeFromUrl === 'project' || chatTypeFromUrl === 'personal') && chatIdFromUrl && !loading) {
       // Find the chat in the currently loaded chats
-      const chatExists = chatType === 'project'
-        ? projectChats.some(p => p.id === chatId)
-        : personalChats.some(p => p.id === chatId);
+      const chatExists = chatTypeFromUrl === 'project'
+        ? projectChats.some(p => p.id === chatIdFromUrl)
+        : personalChats.some(p => p.id === chatIdFromUrl);
 
       if (chatExists) {
-        setSelectedChat({ type: chatType as 'project' | 'personal', id: chatId });
+        setSelectedChat({ type: chatTypeFromUrl as 'project' | 'personal', id: chatIdFromUrl });
       } else {
-        // If the chat doesn't exist (e.g., from a stale URL), don't select it.
         setSelectedChat(null);
       }
     }
-  }, [searchParams, loading]); // Removed projectChats and personalChats from dependencies
+  }, [chatTypeFromUrl, chatIdFromUrl, loading, projectChats, personalChats]);
 
 
   const filteredProjectChats = useMemo(() => {
