@@ -9,7 +9,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
 import type { Message, User, PersonalChat as PersonalChatType, Call } from '@/lib/types';
 import { db } from '@/lib/firebase-client';
-import { doc, getDoc, collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, setDoc, writeBatch, updateDoc, deleteDoc, where } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, setDoc, writeBatch, updateDoc, deleteDoc, where, getDocs } from 'firebase/firestore';
 import { Send, Frown, Phone, Mic, MicOff, Video, VideoOff, PhoneOff, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { Skeleton } from './ui/skeleton';
@@ -30,12 +30,13 @@ const servers = {
 
 
 export function PersonalChat({ chatId }: { chatId: string }) {
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, handleCallAction } = useAuth();
   const searchParams = useSearchParams();
   const { toast } = useToast();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [chat, setChat] = useState<PersonalChatType | null>(null);
   const [otherUser, setOtherUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   
@@ -53,7 +54,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
   const areMutuals = React.useMemo(() => {
     if (!userProfile || !otherUser) return false;
-    return userProfile.following.includes(otherUser.id) && otherUser.following.includes(userProfile.id);
+    return userProfile.following.includes(otherUser.id) && otherUser.followers.includes(userProfile.id);
   }, [userProfile, otherUser]);
 
   const cleanupCall = useCallback(async () => {
@@ -88,6 +89,22 @@ export function PersonalChat({ chatId }: { chatId: string }) {
       try {
         // 1. Setup Chat
         const chatDocRef = doc(db, 'personalChats', chatId);
+        const chatDoc = await getDoc(chatDocRef);
+        
+        if (!chatDoc.exists()) {
+             const otherUserId = chatId.replace(user.uid, '').replace('_', '');
+             const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
+             if (otherUserDoc.exists()) {
+                 setOtherUser({ id: otherUserDoc.id, ...otherUserDoc.data() } as User);
+             }
+             setLoading(false);
+             return; // Chat doesn't exist, wait for it to be created on first message
+        }
+
+        if(isMounted.current) {
+            setChat({ id: chatDoc.id, ...chatDoc.data() } as PersonalChatType);
+        }
+
         const otherUserId = chatId.replace(user.uid, '').replace('_', '');
 
         // Fetch other user's data first
@@ -177,7 +194,9 @@ export function PersonalChat({ chatId }: { chatId: string }) {
    useEffect(() => {
     if (!callData?.id || !peerConnection.current) return;
 
-    const candidatesCollection = collection(db, 'calls', callData.id, 'calleeCandidates');
+    const candidatesCollectionName = callData.callerId === user?.uid ? 'calleeCandidates' : 'callerCandidates';
+    const candidatesCollection = collection(db, 'calls', callData.id, candidatesCollectionName);
+    
     const unsubscribe = onSnapshot(candidatesCollection, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
@@ -186,7 +205,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
       });
     });
     return unsubscribe;
-  }, [callData?.id]);
+  }, [callData?.id, user?.uid]);
 
 
   const startCall = async (targetUser: User) => {
@@ -254,7 +273,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
   const answerCall = async () => {
     if (!callData || !user) return;
-    setCallState('connected');
+    
 
     peerConnection.current = new RTCPeerConnection(servers);
 
@@ -267,10 +286,11 @@ export function PersonalChat({ chatId }: { chatId: string }) {
         await hangUp('rejected');
         return;
     }
+    
+    setCallState('connected');
 
     const callDocRef = doc(db, 'calls', callData.id);
     const calleeCandidates = collection(callDocRef, 'calleeCandidates');
-    const callerCandidates = collection(callDocRef, 'callerCandidates');
 
     peerConnection.current.onicecandidate = event => {
         event.candidate && addDoc(calleeCandidates, event.candidate.toJSON());
@@ -290,14 +310,6 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     const answer = { type: answerDescription.type, sdp: answerDescription.sdp! };
 
     await handleCallAction(callData.id, callData.notifId!, 'accepted', answer);
-
-    onSnapshot(callerCandidates, (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-            if (change.type === 'added') {
-                peerConnection.current?.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-            }
-        });
-    });
   };
 
   const hangUp = async (reason: Call['status'] = 'ended') => {
@@ -360,7 +372,31 @@ export function PersonalChat({ chatId }: { chatId: string }) {
   }
 
   if (!otherUser) {
-    return (<Alert><Frown className="h-4 w-4" /><AlertTitle>Chat Not Found</AlertTitle><AlertDescription>The chat you are looking for could not be loaded.</AlertDescription></Alert>)
+    return (<Alert><Frown className="h-4 w-4" /><AlertTitle>User Not Found</AlertTitle><AlertDescription>This user could not be loaded.</AlertDescription></Alert>)
+  }
+
+  if (!chat) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
+        <Users className="h-16 w-16 mb-4" />
+        <h2 className="text-2xl font-bold">Start the conversation</h2>
+        <p className="max-w-sm mx-auto">You and {otherUser.name} are mutual followers. Send a message to start a new chat!</p>
+        <div className="w-full mt-6">
+            <form onSubmit={handleSendMessage} className="flex w-full items-center space-x-2">
+                <Input 
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder={!areMutuals ? "You must both follow each other to chat." : "Type a message..."}
+                    autoComplete="off"
+                    disabled={!areMutuals}
+                />
+                <Button type="submit" size="icon" disabled={!newMessage.trim() || !areMutuals}>
+                    <Send className="h-4 w-4" />
+                </Button>
+            </form>
+        </div>
+      </div>
+    );
   }
 
   if (callState !== 'idle' && callState !== 'ended') {
