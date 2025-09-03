@@ -116,7 +116,7 @@ const ProfilesPage: NextPage = () => {
       
       try {
           await batch.commit();
-          await fetchUsersAndRequests();
+          //await fetchUsersAndRequests();
           toast({
               title: "Request Sent",
               description: `Your follow request to ${targetUser.name} has been sent.`,
@@ -156,7 +156,7 @@ const ProfilesPage: NextPage = () => {
 
       try {
           await batch.commit();
-          await Promise.all([refreshUserProfile(), fetchUsersAndRequests()]);
+          await Promise.all([refreshUserProfile()]);
           toast({
               title: "Request Accepted",
               description: `You are now following each other.`,
@@ -187,7 +187,7 @@ const ProfilesPage: NextPage = () => {
             requestDocs.forEach(d => transaction.delete(d.ref));
         });
 
-        await Promise.all([refreshUserProfile(), fetchUsersAndRequests()]);
+        await Promise.all([refreshUserProfile()]);
         toast({
             title: "Unfollowed",
             description: `You are no longer following ${targetUser.name}.`,
