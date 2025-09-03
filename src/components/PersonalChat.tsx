@@ -51,7 +51,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
   // Video Call State
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const remoteStream = useRef<MediaStream | null>(null);
   const [callStatus, setCallStatus] = useState<CallStatus>('idle');
   const [callId, setCallId] = useState<string | null>(null);
   const callListeners = useRef<Unsubscribe[]>([]);
@@ -63,12 +63,19 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const { toast, dismiss } = useToast();
+
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
   
   const stopMediaTracks = (stream: MediaStream | null) => {
     stream?.getTracks().forEach(track => track.stop());
   };
   
   const cleanupCall = useCallback(() => {
+    if (!isMounted.current) return;
     console.log("Cleaning up call state...");
 
     callListeners.current.forEach(unsubscribe => unsubscribe());
@@ -84,12 +91,9 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
   
     stopMediaTracks(localStream.current);
     localStream.current = null;
-    
-    // We keep remoteStream in state to drive the UI, but ensure its tracks are stopped
-    if(remoteStream) {
-        stopMediaTracks(remoteStream);
-        setRemoteStream(null);
-    }
+
+    stopMediaTracks(remoteStream.current);
+    remoteStream.current = null;
     
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
@@ -101,7 +105,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
         dismiss(toastIdRef.current);
         toastIdRef.current = null;
     }
-  }, [remoteStream, dismiss]);
+  }, [dismiss]);
 
 
   // Main useEffect for chat messages and info
@@ -134,12 +138,13 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
       const messagesRef = collection(db, 'personalChats', chatId, 'messages');
       const q = query(messagesRef, orderBy('createdAt', 'asc'));
       unsubscribeMessages = onSnapshot(q, (querySnapshot) => {
+        if (!isMounted.current) return;
         setMessages(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
         setLoading(false);
-      }, () => setLoading(false));
+      }, () => { if (isMounted.current) setLoading(false); });
 
     } else {
-        setLoading(false);
+        if (isMounted.current) setLoading(false);
     }
     
     return () => {
@@ -161,15 +166,14 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+        if (!isMounted.current) return;
         if (!snapshot.empty) {
             const callNotification = {id: snapshot.docs[0].id, ...snapshot.docs[0].data()} as Notification;
-            // Only set if we are not already in a call or receiving one
             if(callStatus === 'idle') {
                 setIncomingCall(callNotification);
                 setCallStatus('receiving');
             }
         } else {
-            // This case handles when the caller cancels before the receiver answers
             if(callStatus === 'receiving') {
                 cleanupCall();
             }
@@ -193,9 +197,8 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
                     <Button variant="destructive" onClick={() => handleDeclineCall(incomingCall.link, incomingCall.id)}>Decline</Button>
                 </div>
             ),
-             onOpenChange: (open) => {
-                 if (!open && callStatus === 'receiving') {
-                     // Toast was dismissed without action (e.g., timeout)
+             onClose: () => {
+                 if (callStatus === 'receiving') {
                     handleDeclineCall(incomingCall.link, incomingCall.id);
                  }
              }
@@ -204,15 +207,14 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     }
 }, [callStatus, incomingCall]);
 
-  // Attach streams to video elements
   useEffect(() => {
     if (localVideoRef.current && localStream.current) {
       localVideoRef.current.srcObject = localStream.current;
     }
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
+    if (remoteVideoRef.current && remoteStream.current) {
+      remoteVideoRef.current.srcObject = remoteStream.current;
     }
-  }, [callStatus, remoteStream, localStream.current]);
+  }, [callStatus]);
 
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -312,11 +314,12 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
  const handleInitiateCall = async () => {
     if (!user || !userProfile || !chatInfo?.otherUser.id || callStatus !== 'idle') return;
 
-    setCallStatus('calling');
     pc.current = new RTCPeerConnection(servers);
     
     try {
         localStream.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        if (localVideoRef.current) localVideoRef.current.srcObject = localStream.current;
+        setCallStatus('calling');
     } catch (e) {
         toast({ title: "Error", description: "Could not access camera or microphone.", variant: "destructive" });
         cleanupCall();
@@ -328,9 +331,13 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     });
 
     pc.current.ontrack = (event) => {
-      const newStream = new MediaStream();
-      event.streams[0].getTracks().forEach(track => newStream.addTrack(track));
-      setRemoteStream(newStream);
+        if (!remoteStream.current) {
+            remoteStream.current = new MediaStream();
+            if (remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = remoteStream.current;
+            }
+        }
+        remoteStream.current.addTrack(event.track);
     };
 
     const callDocRef = doc(collection(db, 'personalChats', chatId, 'calls'));
@@ -354,6 +361,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     await batch.commit();
     
     const unsubCallDoc = onSnapshot(callDocRef, (snapshot) => {
+        if (!isMounted.current) return;
         const data = snapshot.data();
         if (data?.status === 'ended' || data?.status === 'declined' || !snapshot.exists()) {
             cleanupCall();
@@ -366,6 +374,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     });
 
     const unsubAnswerCandidates = onSnapshot(answerCandidates, (snapshot) => {
+        if (!isMounted.current) return;
         snapshot.docChanges().forEach((change) => {
             if (change.type === 'added' && pc.current?.currentRemoteDescription) {
                 pc.current.addIceCandidate(new RTCIceCandidate(change.doc.data()));
@@ -378,19 +387,17 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
 
   const handleAnswerCall = async (callDocId: string, notificationId: string) => {
       if (!user || callStatus !== 'receiving') return;
-
-      // Clear local notification state immediately
+      
       setIncomingCall(null);
       if(toastIdRef.current) {
         dismiss(toastIdRef.current);
         toastIdRef.current = null;
       }
-
       pc.current = new RTCPeerConnection(servers);
-      setCallId(callDocId);
       
       try {
         localStream.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        if (localVideoRef.current) localVideoRef.current.srcObject = localStream.current;
       } catch (e) {
           toast({ title: "Error", description: "Could not access camera or microphone.", variant: "destructive" });
           await handleDeclineCall(callDocId, notificationId);
@@ -398,14 +405,20 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
           return;
       }
       
+      setCallId(callDocId);
+      
       localStream.current.getTracks().forEach(track => {
           pc.current!.addTrack(track, localStream.current!);
       });
 
       pc.current.ontrack = (event) => {
-          const newStream = new MediaStream();
-          event.streams[0].getTracks().forEach(track => newStream.addTrack(track));
-          setRemoteStream(newStream);
+          if (!remoteStream.current) {
+              remoteStream.current = new MediaStream();
+              if (remoteVideoRef.current) {
+                  remoteVideoRef.current.srcObject = remoteStream.current;
+              }
+          }
+          remoteStream.current.addTrack(event.track);
       };
       
       const callDocRef = doc(db, 'personalChats', chatId, 'calls', callDocId);
@@ -438,6 +451,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
       setCallStatus('connected');
 
       const unsubOfferCandidates = onSnapshot(offerCandidates, (snapshot) => {
+          if (!isMounted.current) return;
           snapshot.docChanges().forEach((change) => {
               if (change.type === 'added' && pc.current?.remoteDescription) {
                   pc.current.addIceCandidate(new RTCIceCandidate(change.doc.data()));
@@ -446,7 +460,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
       });
 
       const unsubCallDoc = onSnapshot(callDocRef, (snapshot) => {
-          if (!snapshot.exists() || snapshot.data()?.status === 'ended' || snapshot.data()?.status === 'declined') {
+          if (!isMounted.current || !snapshot.exists() || snapshot.data()?.status === 'ended' || snapshot.data()?.status === 'declined') {
               cleanupCall();
           }
       });
@@ -457,7 +471,6 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
   const handleDeclineCall = async (callIdToDecline: string, notificationId: string) => {
     if (!notificationId || !callIdToDecline) return;
 
-    // Clear local notification state immediately
     setIncomingCall(null);
     if(toastIdRef.current) {
         dismiss(toastIdRef.current);
@@ -474,7 +487,6 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
         await batch.commit();
 
     } catch (error) {
-        // It's possible the document was already deleted by the caller, which is fine.
         if ((error as any).code !== 'not-found') {
             console.error("Error declining call:", error);
         }
@@ -565,9 +577,9 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
 
       <Dialog open={isVideoOpen} onOpenChange={(open) => { if (!open && callStatus !== 'idle') handleHangup(); }}>
         <DialogContent className="max-w-4xl p-0 border-0 bg-black text-white">
-            <DialogHeader className="sr-only">
-                <DialogTitle>Video Call</DialogTitle>
-                <DialogDescription>Video call with {chatInfo?.otherUser?.name || 'your buddy'}.</DialogDescription>
+            <DialogHeader>
+                <DialogTitle className="sr-only">Video Call</DialogTitle>
+                <DialogDescription className="sr-only">Video call with {chatInfo?.otherUser?.name || 'your buddy'}.</DialogDescription>
             </DialogHeader>
             <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden rounded-md">
                 <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
@@ -588,3 +600,5 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     </div>
   );
 }
+
+    
