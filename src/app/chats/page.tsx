@@ -8,7 +8,7 @@ import { MessageSquare, Frown, Search, Users, User } from 'lucide-react';
 import Link from 'next/link';
 import type { Project, Team, PersonalChat } from '@/lib/types';
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
-import { collection, getDocs, query, where, documentId, or } from 'firebase/firestore';
+import { collection, getDocs, query, where, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase-client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
@@ -45,13 +45,9 @@ const ChatPageContent: React.FC = () => {
       setLoading(true);
       try {
         // --- Fetch Project Chats ---
-        const teamsQuery = query(collection(db, 'teams'), where('members', 'array-contains', { role: 'Member', userId: user.uid }));
-        const ownerTeamsQuery = query(collection(db, 'teams'), where('members', 'array-contains', { role: 'Owner', userId: user.uid }));
-        
-        const [teamsSnapshot, ownerTeamsSnapshot] = await Promise.all([getDocs(teamsQuery), getDocs(ownerTeamsQuery)]);
-        
-        const allTeams = [...teamsSnapshot.docs, ...ownerTeamsSnapshot.docs];
-        const projectIds = allTeams.map(doc => (doc.data() as Team).projectId);
+        const teamsQuery = query(collection(db, 'teams'), where('memberIds', 'array-contains', user.uid));
+        const teamsSnapshot = await getDocs(teamsQuery);
+        const projectIds = teamsSnapshot.docs.map(doc => (doc.data() as Team).projectId);
 
         if (projectIds.length > 0) {
             const projectsQuery = query(collection(db, 'projects'), where(documentId(), 'in', projectIds));
@@ -296,3 +292,5 @@ const ChatsPage: NextPage = () => {
 };
 
 export default ChatsPage;
+
+    

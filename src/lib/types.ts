@@ -46,6 +46,7 @@ export interface Team {
   projectId: string;
   teamName: string;
   members: TeamMember[];
+  memberIds: string[];
 }
 
 
@@ -135,3 +136,4 @@ export interface Call {
     notifId?: string;
 }
 
+    

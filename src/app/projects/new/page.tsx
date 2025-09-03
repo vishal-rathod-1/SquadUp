@@ -118,6 +118,7 @@ const NewProjectPage: NextPage = () => {
         members: [
           { userId: user.uid, role: 'Owner' }
         ],
+        memberIds: [user.uid],
       });
 
       // 3. Commit the batch
@@ -306,3 +307,5 @@ const NewProjectPage: NextPage = () => {
 };
 
 export default NewProjectPage;
+
+    

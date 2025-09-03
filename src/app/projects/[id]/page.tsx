@@ -48,10 +48,7 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
   const { toast } = useToast();
   const router = useRouter();
 
-  useEffect(() => {
-    if (!projectId) return;
-
-    const fetchProjectData = async () => {
+  const fetchProjectData = async () => {
       setLoading(true);
       try {
         // Fetch Project
@@ -131,6 +128,8 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
       setLoading(false);
     };
 
+  useEffect(() => {
+    if (!projectId) return;
     fetchProjectData();
   }, [projectId, user]);
   
@@ -219,7 +218,8 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
               }
               const teamDocRef = doc(db, 'teams', team.id);
               batch.update(teamDocRef, {
-                  members: arrayUnion({ userId: request.fromUserId, role: 'Member' })
+                  members: arrayUnion({ userId: request.fromUserId, role: 'Member' }),
+                  memberIds: arrayUnion(request.fromUserId)
               });
               
               // Create notification for the user who was accepted
@@ -233,28 +233,13 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
                 isRead: false,
                 createdAt: serverTimestamp(),
               });
-
-              // Optimistically update UI
-              const userDocRef = doc(db, 'users', request.fromUserId);
-              const userDoc = await getDoc(userDocRef);
-              if (userDoc.exists()) {
-                  const userData = userDoc.data() as User;
-                  setTeam(prevTeam => {
-                      if (!prevTeam) return null;
-                      const newMember = {
-                          userId: request.fromUserId,
-                          role: 'Member',
-                          name: userData.name,
-                          avatarUrl: userData.avatarUrl,
-                      };
-                      return {...prevTeam, members: [...prevTeam.members, newMember]};
-                  });
-              }
           }
           
           await batch.commit();
+          
+          // Re-fetch data to update UI correctly for all changes
+          await fetchProjectData();
 
-          setRequests(prev => prev.filter(r => r.id !== requestId));
           toast({ title: `Request ${newStatus}`, description: `The user's request has been ${newStatus}.` });
 
       } catch (error) {
@@ -524,3 +509,5 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
 };
 
 export default ProjectDetailPage;
+
+    
