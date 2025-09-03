@@ -112,11 +112,11 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   useEffect(() => {
     if (user) {
       const notifsRef = collection(db, 'notifications');
-      const q = query(notifsRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+      const q = query(notifsRef, where('userId', '==', user.uid), orderBy('createdAt', 'asc'));
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
-        setNotifications(notifs);
+        setNotifications(notifs.reverse());
       });
 
       return () => unsubscribe();
@@ -139,7 +139,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       username: data.username,
       email: newUser.email,
       bio: data.bio,
-      skills: data.skills.split(',').map((s: string) => s.trim()).filter(Boolean),
+      skills: data.skills?.split(',').map((s: string) => s.trim()).filter(Boolean) || [],
       githubUrl: data.githubUrl,
       linkedinUrl: data.linkedinUrl,
       followers: [],
