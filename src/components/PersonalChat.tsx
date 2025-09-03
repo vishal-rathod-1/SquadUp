@@ -54,14 +54,17 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
   const areMutuals = React.useMemo(() => {
     if (!userProfile || !otherUser) return false;
-    return userProfile.following.includes(otherUser.id) && otherUser.followers.includes(userProfile.id);
+    // Ensure `following` and `followers` arrays exist before checking
+    const currentUserFollowing = userProfile.following || [];
+    const otherUserFollowers = otherUser.followers || [];
+    return currentUserFollowing.includes(otherUser.id) && otherUserFollowers.includes(userProfile.id);
   }, [userProfile, otherUser]);
 
   const cleanupCall = useCallback(async () => {
     console.log("Cleaning up call...");
     if (peerConnection.current) {
         peerConnection.current.getTransceivers().forEach(transceiver => {
-            transceiver.stop();
+            if(transceiver.stop) transceiver.stop();
         });
         peerConnection.current.close();
         peerConnection.current = null;
@@ -70,9 +73,11 @@ export function PersonalChat({ chatId }: { chatId: string }) {
         localStream.getTracks().forEach(track => track.stop());
         setLocalStream(null);
     }
-    setRemoteStream(null);
-    setCallState('idle');
-    setCallData(null);
+    if (isMounted.current) {
+      setRemoteStream(null);
+      setCallState('idle');
+      setCallData(null);
+    }
   }, [localStream]);
 
   // Main useEffect for setting up chat and call listeners
@@ -87,27 +92,8 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
     const setup = async () => {
       try {
-        // 1. Setup Chat
-        const chatDocRef = doc(db, 'personalChats', chatId);
-        const chatDoc = await getDoc(chatDocRef);
-        
-        if (!chatDoc.exists()) {
-             const otherUserId = chatId.replace(user.uid, '').replace('_', '');
-             const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
-             if (otherUserDoc.exists()) {
-                 setOtherUser({ id: otherUserDoc.id, ...otherUserDoc.data() } as User);
-             }
-             setLoading(false);
-             return; // Chat doesn't exist, wait for it to be created on first message
-        }
-
-        if(isMounted.current) {
-            setChat({ id: chatDoc.id, ...chatDoc.data() } as PersonalChatType);
-        }
-
-        const otherUserId = chatId.replace(user.uid, '').replace('_', '');
-
         // Fetch other user's data first
+        const otherUserId = chatId.replace(user.uid, '').replace('_', '');
         const userDoc = await getDoc(doc(db, 'users', otherUserId));
         if (userDoc.exists() && isMounted.current) {
             setOtherUser({ id: userDoc.id, ...userDoc.data() } as User);
@@ -115,27 +101,38 @@ export function PersonalChat({ chatId }: { chatId: string }) {
             if (isMounted.current) setLoading(false);
             return;
         }
-        
-        const messagesCollectionRef = collection(db, `personalChats/${chatId}/messages`);
-        const q = query(messagesCollectionRef, orderBy('createdAt', 'asc'));
-        unsubscribeMessages = onSnapshot(q, (querySnapshot) => {
-          if (!isMounted.current) return;
-          setMessages(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
-        }, (err) => { 
-          console.error("Error fetching messages:", err);
-        });
 
-        // 2. Setup Call Listeners & handle incoming calls
-        const callQuery = query(collection(db, 'calls'), where('calleeId', '==', user.uid), where('status', '==', 'pending'));
+        // 1. Setup Chat
+        const chatDocRef = doc(db, 'personalChats', chatId);
+        const chatDoc = await getDoc(chatDocRef);
+        
+        if (chatDoc.exists()) {
+             if(isMounted.current) {
+                setChat({ id: chatDoc.id, ...chatDoc.data() } as PersonalChatType);
+            }
+             const messagesCollectionRef = collection(db, `personalChats/${chatId}/messages`);
+             const q = query(messagesCollectionRef, orderBy('createdAt', 'asc'));
+             unsubscribeMessages = onSnapshot(q, (querySnapshot) => {
+              if (!isMounted.current) return;
+              setMessages(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
+            }, (err) => { 
+              console.error("Error fetching messages:", err);
+            });
+        }
+        
+        // 2. Setup Call Listeners & handle incoming calls from this specific user
+        const callQuery = query(
+          collection(db, 'calls'), 
+          where('calleeId', '==', user.uid), 
+          where('callerId', '==', otherUserId),
+          where('status', '==', 'pending')
+        );
         unsubscribeCall = onSnapshot(callQuery, (snapshot) => {
             if (!isMounted.current) return;
             if (!snapshot.empty) {
                 const call = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Call;
-                const callChatId = [call.callerId, call.calleeId].sort().join('_');
-                if (callChatId === chatId) {
-                    setCallData(call);
-                    setCallState('receiving');
-                }
+                setCallData(call);
+                setCallState('receiving');
             }
         });
 
@@ -168,10 +165,9 @@ export function PersonalChat({ chatId }: { chatId: string }) {
   useEffect(() => {
     if (!callData?.id) return;
     const unsubscribe = onSnapshot(doc(db, 'calls', callData.id), async (docSnapshot) => {
-        if (!isMounted.current) return;
+        if (!isMounted.current || !docSnapshot.exists()) return;
         const updatedCall = docSnapshot.data() as Call;
-        if (!updatedCall) return;
-
+        
         setCallData(prev => ({...prev, ...updatedCall}));
 
         // Handle receiving an answer
@@ -181,26 +177,28 @@ export function PersonalChat({ chatId }: { chatId: string }) {
             await peerConnection.current.setRemoteDescription(answerDescription);
         }
 
-        // Handle call status changes
+        // Handle call status changes from the other user
         if(updatedCall.status === 'ended' || updatedCall.status === 'declined' || updatedCall.status === 'rejected') {
+            toast({ title: `Call ${updatedCall.status}`, description: `${callData.callerId === user?.uid ? otherUser?.name : 'You'} ended the call.`});
             await cleanupCall();
         }
     });
 
     return unsubscribe;
-  }, [callData?.id, cleanupCall]);
+  }, [callData?.id, cleanupCall, user?.uid, otherUser?.name]);
 
    // Effect to listen for remote ICE candidates
    useEffect(() => {
     if (!callData?.id || !peerConnection.current) return;
 
+    // We listen to the collection that the OTHER user is writing to
     const candidatesCollectionName = callData.callerId === user?.uid ? 'calleeCandidates' : 'callerCandidates';
     const candidatesCollection = collection(db, 'calls', callData.id, candidatesCollectionName);
     
     const unsubscribe = onSnapshot(candidatesCollection, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
+      snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
-          peerConnection.current?.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+          await peerConnection.current?.addIceCandidate(new RTCIceCandidate(change.doc.data()));
         }
       });
     });
@@ -220,7 +218,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
         stream.getTracks().forEach(track => peerConnection.current!.addTrack(track, stream));
     } catch(err) {
         toast({ title: "Camera/Mic Error", description: "Could not access camera or microphone.", variant: "destructive"});
-        cleanupCall();
+        await cleanupCall();
         return;
     }
 
@@ -268,13 +266,11 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     
     await batch.commit();
     setCallData({id: callDocRef.id, ...newCallData});
-    setCallState('calling');
   };
 
   const answerCall = async () => {
     if (!callData || !user) return;
     
-
     peerConnection.current = new RTCPeerConnection(servers);
 
     try {
@@ -315,18 +311,9 @@ export function PersonalChat({ chatId }: { chatId: string }) {
   const hangUp = async (reason: Call['status'] = 'ended') => {
       if (!callData) return;
       
-      const callDocRef = doc(db, 'calls', callData.id);
-      
-      const batch = writeBatch(db);
-      batch.update(callDocRef, { status: reason });
-      
-      if (callData.notifId && (reason === 'declined' || reason === 'rejected')) {
-          const notifDocRef = doc(db, 'notifications', callData.notifId);
-          batch.update(notifDocRef, { status: 'answered' });
-      }
-
-      await batch.commit();
+      await handleCallAction(callData.id, callData.notifId!, reason);
       await cleanupCall();
+      toast({ title: "Call Ended" });
   }
 
   const toggleMute = () => {
@@ -345,7 +332,12 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user || !userProfile || !otherUser || !areMutuals) return;
+    if (!newMessage.trim() || !user || !userProfile || !otherUser) return;
+    
+    if (!areMutuals) {
+        toast({ title: "Cannot Send Message", description: "You must both follow each other to chat.", variant: "destructive" });
+        return;
+    }
     
     const chatDocRef = doc(db, 'personalChats', chatId);
     const messagesCollectionRef = collection(chatDocRef, 'messages');
@@ -375,22 +367,21 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     return (<Alert><Frown className="h-4 w-4" /><AlertTitle>User Not Found</AlertTitle><AlertDescription>This user could not be loaded.</AlertDescription></Alert>)
   }
 
-  if (!chat) {
+  if (!chat && areMutuals) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
         <Users className="h-16 w-16 mb-4" />
         <h2 className="text-2xl font-bold">Start the conversation</h2>
-        <p className="max-w-sm mx-auto">You and {otherUser.name} are mutual followers. Send a message to start a new chat!</p>
+        <p className="max-w-sm mx-auto">You and {otherUser.name} are mutual followers. Send a message to start chatting!</p>
         <div className="w-full mt-6">
             <form onSubmit={handleSendMessage} className="flex w-full items-center space-x-2">
                 <Input 
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder={!areMutuals ? "You must both follow each other to chat." : "Type a message..."}
+                    placeholder={"Type a message..."}
                     autoComplete="off"
-                    disabled={!areMutuals}
                 />
-                <Button type="submit" size="icon" disabled={!newMessage.trim() || !areMutuals}>
+                <Button type="submit" size="icon" disabled={!newMessage.trim()}>
                     <Send className="h-4 w-4" />
                 </Button>
             </form>
@@ -402,32 +393,34 @@ export function PersonalChat({ chatId }: { chatId: string }) {
   if (callState !== 'idle' && callState !== 'ended') {
     return (
         <Card className="h-full flex flex-col bg-slate-900 text-white">
-             <CardContent className="flex-1 flex flex-col items-center justify-center p-4 relative">
-                <div className="absolute top-4 right-4">
+             <CardContent className="flex-1 flex flex-col items-center justify-between p-4 relative">
+                
+                {/* Local Video Preview */}
+                <div className="absolute top-4 right-4 z-20">
                     {localStream && <video ref={video => { if (video) video.srcObject = localStream }} muted autoPlay className="w-48 h-36 rounded-md object-cover border-2 border-slate-700"/>}
                 </div>
-                 <div className="text-center mb-8">
-                     <Avatar className="h-24 w-24 mb-4 ring-4 ring-slate-700">
-                         <AvatarImage src={otherUser.avatarUrl} />
-                         <AvatarFallback>{otherUser.name.charAt(0)}</AvatarFallback>
-                     </Avatar>
-                     <CardTitle className="text-3xl">{otherUser.name}</CardTitle>
-                      <p className="text-slate-400 capitalize">{callState === 'connected' ? 'Connected' : `${callState}...`}</p>
-                 </div>
-                 
-                 <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center">
+
+                {/* Remote Video */}
+                 <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center flex-1">
                     {remoteStream ? (
                         <video ref={video => { if (video) video.srcObject = remoteStream }} autoPlay className="w-full h-full object-cover"/>
                     ) : (
-                        <p className="text-slate-500">Waiting for {otherUser.name}...</p>
+                        <div className="text-center text-slate-500">
+                             <Avatar className="h-24 w-24 mb-4 ring-4 ring-slate-700 mx-auto">
+                                 <AvatarImage src={otherUser.avatarUrl} />
+                                 <AvatarFallback>{otherUser.name.charAt(0)}</AvatarFallback>
+                             </Avatar>
+                             <p>Waiting for {otherUser.name}...</p>
+                             <p className="text-slate-400 capitalize">{callState}...</p>
+                        </div>
                     )}
                  </div>
 
                  {callState === 'receiving' && (
-                     <div className="absolute bottom-16 flex flex-col items-center gap-4">
+                     <div className="absolute bottom-16 flex flex-col items-center gap-4 z-20">
                          <p>{callData?.callerName} is calling...</p>
                          <div className="flex gap-4">
-                             <Button onClick={() => hangUp('rejected')} variant="destructive" size="lg" className="rounded-full h-16 w-16"><PhoneOff /></Button>
+                             <Button onClick={() => hangUp('declined')} variant="destructive" size="lg" className="rounded-full h-16 w-16"><PhoneOff /></Button>
                              <Button onClick={answerCall} variant="secondary" size="lg" className="rounded-full h-16 w-16 bg-green-500 hover:bg-green-600"><Phone /></Button>
                          </div>
                      </div>
@@ -435,13 +428,13 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
              </CardContent>
              <CardFooter className="p-4 border-t border-slate-700 flex justify-center">
-                 {callState === 'connected' || callState === 'calling' ? (
+                 {(callState === 'connected' || callState === 'calling' || callState === 'receiving') && (
                      <div className="flex items-center gap-4">
                          <Button onClick={toggleMute} variant="secondary" size="icon" className={cn("rounded-full", isMuted && "bg-destructive")}>{isMuted ? <MicOff/> : <Mic />}</Button>
                          <Button onClick={() => hangUp('ended')} variant="destructive" size="lg" className="rounded-full h-16 w-16"><PhoneOff /></Button>
                          <Button onClick={toggleVideo} variant="secondary" size="icon" className={cn("rounded-full", isVideoOff && "bg-destructive")}>{isVideoOff ? <VideoOff/> : <Video />}</Button>
                      </div>
-                 ) : null}
+                 )}
              </CardFooter>
         </Card>
     )
@@ -497,3 +490,5 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     </Card>
   );
 }
+
+    

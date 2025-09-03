@@ -31,7 +31,7 @@ interface AuthContextType {
   signOut: () => void;
   refreshUserProfile: () => Promise<void>;
   isUsernameUnique: (username: string) => Promise<boolean>;
-  handleCallAction: (callId: string, notifId: string, action: 'accepted' | 'declined', answer?: RTCSessionDescriptionInit) => Promise<void>;
+  handleCallAction: (callId: string, notifId: string, action: 'accepted' | 'declined' | 'rejected' | 'ended', answer?: RTCSessionDescriptionInit) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -125,16 +125,10 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   useEffect(() => {
     if (user) {
       const notifsRef = collection(db, 'notifications');
-      const q = query(notifsRef, where('userId', '==', user.uid));
+      const q = query(notifsRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
-        // Sort notifications on the client side
-        notifs.sort((a, b) => {
-            const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
-            const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
-            return dateB.getTime() - dateA.getTime();
-        });
         setNotifications(notifs);
       });
 
@@ -188,19 +182,23 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       }
   }
 
-  const handleCallAction = useCallback(async (callId: string, notifId: string, action: 'accepted' | 'declined', answer?: RTCSessionDescriptionInit) => {
+  const handleCallAction = useCallback(async (callId: string, notifId: string, action: 'accepted' | 'declined' | 'rejected' | 'ended', answer?: RTCSessionDescriptionInit) => {
     const callDocRef = doc(db, 'calls', callId);
-    const notifDocRef = doc(db, 'notifications', notifId);
     
     const batch = writeBatch(db);
 
+    const updateData: Partial<Call> = { status: action };
     if (action === 'accepted' && answer) {
-        batch.update(callDocRef, { status: 'active', answer: answer });
-    } else {
-        batch.update(callDocRef, { status: action }); // 'declined'
+        updateData.answer = answer;
+        updateData.status = 'active';
     }
     
-    batch.update(notifDocRef, { status: 'answered' });
+    batch.update(callDocRef, updateData);
+    
+    if (notifId) {
+      const notifDocRef = doc(db, 'notifications', notifId);
+      batch.update(notifDocRef, { status: 'answered' });
+    }
     
     await batch.commit();
   }, []);
@@ -230,3 +228,5 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
+    

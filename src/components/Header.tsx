@@ -51,12 +51,13 @@ export function Header() {
   const handleOpenNotifications = async (open: boolean) => {
     if (open && hasUnread && user) {
         try {
-            const notifsToMark = notifications.filter(n => n.type !== 'incoming_call').map(n => n.id);
+            // Only mark non-call notifications as read
+            const notifsToMark = notifications.filter(n => !n.isRead && n.type !== 'incoming_call').map(n => n.id);
             if(notifsToMark.length > 0) {
               await markNotificationsAsRead(user.uid, notifsToMark);
+              // Optimistically update the UI for a faster response
+              setNotifications(prev => prev.map(n => notifsToMark.includes(n.id) ? {...n, isRead: true} : n));
             }
-            // Optimistically update the UI
-            setNotifications(prev => prev.map(n => ({...n, isRead: true})));
         } catch (error) {
             console.error("Error marking notifications as read", error);
         }
@@ -120,7 +121,7 @@ export function Header() {
         if (action === 'accepted') {
             router.push(notification.link);
         }
-        toast({ title: `Call ${action}` });
+        // No toast here, let PersonalChat handle it
     } catch (error) {
         console.error(`Error ${action} call:`, error);
         toast({ title: "Action Failed", description: `Could not ${action} the call.`, variant: "destructive" });
@@ -179,7 +180,7 @@ export function Header() {
                          notifications.map(notif => (
                             <DropdownMenuItem key={notif.id} className={cn(!notif.isRead && "font-bold", "flex flex-col items-start gap-2")} onSelect={(e) => {
                                 e.preventDefault();
-                                if(notif.type !== 'incoming_call') router.push(notif.link);
+                                if(notif.type !== 'incoming_call' && notif.type !== 'follow_request') router.push(notif.link);
                             }}>
                                 <p className="text-sm whitespace-normal">{notif.message}</p>
                                 {notif.type === 'follow_request' && notif.status !== 'accepted' && (
@@ -246,3 +247,5 @@ export function Header() {
     </header>
   );
 }
+
+    

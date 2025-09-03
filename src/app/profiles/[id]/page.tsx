@@ -214,7 +214,7 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
   };
 
   const handleAcceptFollowRequest = async () => {
-      if (!user || !followRequest) return;
+      if (!user || !followRequest || !userProfile) return;
       
       const batch = writeBatch(db);
       
@@ -233,18 +233,27 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
       batch.set(newNotificationRef, {
         userId: followRequest.fromUserId,
         type: "new_follower",
-        message: `${userProfile?.name} accepted your follow request.`,
+        message: `${userProfile.name} accepted your follow request.`,
         link: `/profiles/${user.uid}`,
         isRead: false,
         createdAt: serverTimestamp(),
       });
+
+      // Create a personal chat between them
+      const chatId = [user.uid, followRequest.fromUserId].sort().join('_');
+      const chatRef = doc(db, 'personalChats', chatId);
+      batch.set(chatRef, {
+        participants: [user.uid, followRequest.fromUserId],
+        createdAt: serverTimestamp(),
+        lastMessage: null,
+      }, { merge: true }); // Use merge to avoid overwriting existing chat data if any
 
       try {
           await batch.commit();
           await Promise.all([refreshUserProfile(), fetchProfileData()]);
           toast({
               title: "Request Accepted",
-              description: `You are now following each other.`,
+              description: `You are now following each other. A chat has been created.`,
           });
       } catch (error) {
           console.error("Error accepting request:", error);
