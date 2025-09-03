@@ -9,7 +9,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
 import type { Message, User, PersonalChat as PersonalChatType, Call } from '@/lib/types';
 import { db } from '@/lib/firebase-client';
-import { doc, getDoc, collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, setDoc, writeBatch, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, setDoc, writeBatch, updateDoc, deleteDoc, where } from 'firebase/firestore';
 import { Send, Frown, Phone, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
 import { format } from 'date-fns';
 import { Skeleton } from './ui/skeleton';
