@@ -64,7 +64,13 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     const userDocRef = doc(db, "users", firebaseUser.uid);
     const userDoc = await getDoc(userDocRef);
      if (userDoc.exists()) {
-      setUserProfile({ id: userDoc.id, ...userDoc.data() } as User);
+      const userData = { id: userDoc.id, ...userDoc.data() } as User;
+      // Keep the local user profile in sync with the auth state
+      if (userData.emailVerified !== firebaseUser.emailVerified) {
+          await updateDoc(userDocRef, { emailVerified: firebaseUser.emailVerified });
+          userData.emailVerified = firebaseUser.emailVerified;
+      }
+      setUserProfile(userData);
     }
   }
 
@@ -88,6 +94,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
                 name: user.displayName || 'New User',
                 username: newUsername,
                 email: user.email!,
+                emailVerified: user.emailVerified,
                 avatarUrl: user.photoURL || `https://picsum.photos/seed/${user.uid}/200`,
                 bio: '',
                 skills: [],
@@ -97,6 +104,12 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
             };
             await setDoc(userDocRef, newUserProfileData);
             setUserProfile({ id: user.uid, ...newUserProfileData, createdAt: new Date() } as User);
+        } else {
+            // If the user doc exists, ensure the emailVerified status is up to date
+            const existingData = userDoc.data();
+            if(existingData.emailVerified !== user.emailVerified) {
+                await updateDoc(userDocRef, { emailVerified: user.emailVerified });
+            }
         }
       } else {
         setUser(null);
@@ -144,6 +157,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       name: data.name,
       username: data.username,
       email: newUser.email,
+      emailVerified: newUser.emailVerified,
       bio: data.bio,
       skills: data.skills?.split(',').map((s: string) => s.trim()).filter(Boolean) || [],
       githubUrl: data.githubUrl,

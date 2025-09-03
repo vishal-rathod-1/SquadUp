@@ -45,7 +45,12 @@ const ProfilesPage: NextPage = () => {
         setLoading(true);
         try {
           const usersCollection = collection(db, 'users');
-          const q = query(usersCollection, where('__name__', '!=', currentUser.uid)); // Exclude current user
+          // Query for verified users only, excluding the current user
+          const q = query(
+            usersCollection, 
+            where('emailVerified', '==', true),
+            where('__name__', '!=', currentUser.uid)
+          );
           const usersSnapshot = await getDocs(q);
           let usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
           
@@ -72,12 +77,17 @@ const ProfilesPage: NextPage = () => {
   
         } catch (error) {
           console.error("Error fetching users:", error);
+          toast({
+            title: "Error",
+            description: "Could not fetch user profiles. There might be a database configuration issue.",
+            variant: "destructive"
+          });
         }
         setLoading(false);
       };
 
     fetchUsersAndRequests();
-  }, [currentUser, authLoading, router]);
+  }, [currentUser, authLoading, router, toast]);
   
   const handleSendFollowRequest = async (targetUser: User) => {
       if (!currentUser || !currentUserProfile) return;
@@ -198,7 +208,7 @@ const ProfilesPage: NextPage = () => {
       user.id !== currentUser.uid && (
         user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.skills.some(skill => skill.toLowerCase().includes(searchTerm.toLowerCase()))
+        (user.skills && user.skills.some(skill => skill.toLowerCase().includes(searchTerm.toLowerCase())))
       )
     );
   }, [users, searchTerm, currentUser]);
@@ -219,28 +229,46 @@ const ProfilesPage: NextPage = () => {
       return <Button onClick={() => handleSendFollowRequest(user)} className="w-full"><UserPlus className="mr-2 h-4 w-4"/>Follow</Button>;
   }
 
-  if (loading || authLoading || !currentUser) {
+  if (authLoading || !currentUser) {
     return (
       <div className="flex flex-col min-h-screen bg-background">
         <Header />
-        <main className="flex-1 container mx-auto py-8 px-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {[...Array(8)].map((_, i) => (
-                <Card key={i} className="text-center p-6">
-                    <Skeleton className="h-24 w-24 rounded-full mx-auto mb-4" />
-                    <Skeleton className="h-6 w-1/2 mx-auto mb-2" />
-                    <Skeleton className="h-4 w-3/4 mx-auto mb-4" />
-                    <div className="flex flex-wrap gap-2 justify-center">
-                    <Skeleton className="h-5 w-16" />
-                    <Skeleton className="h-5 w-20" />
-                    </div>
-                    <Skeleton className="h-10 w-full mt-6" />
-                </Card>
-                ))}
-            </div>
+        <main className="flex-1 container mx-auto py-8 px-4 flex items-center justify-center">
+            <Alert>
+                <UserIcon className="h-4 w-4" />
+                <AlertTitle>Please Log In</AlertTitle>
+                <AlertDescription>
+                You need to be logged in to view student profiles. 
+                <Button asChild variant="link" className="p-0 h-auto ml-1"><Link href="/login">Login here.</Link></Button>
+                </AlertDescription>
+            </Alert>
         </main>
       </div>
     )
+  }
+
+  if (loading) {
+       return (
+          <div className="flex flex-col min-h-screen bg-background">
+            <Header />
+            <main className="flex-1 container mx-auto py-8 px-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {[...Array(8)].map((_, i) => (
+                    <Card key={i} className="text-center p-6">
+                        <Skeleton className="h-24 w-24 rounded-full mx-auto mb-4" />
+                        <Skeleton className="h-6 w-1/2 mx-auto mb-2" />
+                        <Skeleton className="h-4 w-3/4 mx-auto mb-4" />
+                        <div className="flex flex-wrap gap-2 justify-center">
+                        <Skeleton className="h-5 w-16" />
+                        <Skeleton className="h-5 w-20" />
+                        </div>
+                        <Skeleton className="h-10 w-full mt-6" />
+                    </Card>
+                    ))}
+                </div>
+            </main>
+          </div>
+        )
   }
 
   return (
@@ -270,7 +298,7 @@ const ProfilesPage: NextPage = () => {
             <UserIcon className="h-4 w-4" />
             <AlertTitle>No Users Found</AlertTitle>
             <AlertDescription>
-              No users match your search. Try a different term.
+              No verified users match your search. Try a different term.
             </AlertDescription>
           </Alert>
         ) : (
@@ -305,7 +333,7 @@ const ProfilesPage: NextPage = () => {
                     </div>
                   </CardHeader>
                   <CardContent className="flex-grow px-4 pb-4">
-                     {user.skills.length > 0 ? (
+                     {user.skills && user.skills.length > 0 ? (
                       <div className="flex flex-wrap gap-1 justify-center">
                           {user.skills.slice(0, 3).map(skill => <Badge key={skill} variant="secondary" className="text-xs">{skill}</Badge>)}
                           {user.skills.length > 3 && <Badge variant="outline">+{user.skills.length - 3}</Badge>}
