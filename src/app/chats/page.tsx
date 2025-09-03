@@ -117,65 +117,63 @@ function ChatPageContent() {
   }
 
   return (
-    <>
+    <div className="flex flex-1 overflow-hidden">
       <SidebarProvider>
-        <div className="flex flex-1 overflow-hidden">
-            <Sidebar collapsible="icon" side="left" className="w-80 border-r">
-                <SidebarContent>
-                    <SidebarGroup>
-                        <SidebarGroupLabel>Project Chats</SidebarGroupLabel>
-                        <SidebarMenu>
-                                {projectChats.map(proj => (
-                                <SidebarMenuItem key={proj.id}>
-                                    <Link href={`/chats?type=project&id=${proj.id}`} className="w-full">
-                                        <SidebarMenuButton isActive={selectedChat?.id === proj.id && selectedChat?.type === 'project'}>
-                                            <Users className="h-4 w-4" />
-                                            <span>{proj.title}</span>
-                                        </SidebarMenuButton>
-                                    </Link>
-                                </SidebarMenuItem>
-                            ))}
-                        </SidebarMenu>
-                    </SidebarGroup>
-                    <SidebarGroup>
-                        <SidebarGroupLabel>Direct Messages</SidebarGroupLabel>
-                        <SidebarMenu>
-                            {personalChats.map(chat => (
-                                <SidebarMenuItem key={chat.id}>
-                                    <Link href={`/chats?type=personal&id=${chat.id}`} className="w-full">
-                                        <SidebarMenuButton isActive={selectedChat?.id === chat.id && selectedChat?.type === 'personal'}>
-                                            <Avatar className="h-6 w-6">
-                                                <AvatarImage src={chat.otherUser.avatarUrl} alt={chat.otherUser.name} />
-                                                <AvatarFallback>{chat.otherUser.name.charAt(0)}</AvatarFallback>
-                                            </Avatar>
-                                            <span>{chat.otherUser.name}</span>
-                                        </SidebarMenuButton>
-                                    </Link>
-                                </SidebarMenuItem>
-                            ))}
-                        </SidebarMenu>
-                    </SidebarGroup>
-                </SidebarContent>
-            </Sidebar>
+        <Sidebar collapsible="icon" side="left" className="w-80">
+            <SidebarContent>
+                <SidebarGroup>
+                    <SidebarGroupLabel>Project Chats</SidebarGroupLabel>
+                    <SidebarMenu>
+                            {projectChats.map(proj => (
+                            <SidebarMenuItem key={proj.id}>
+                                <Link href={`/chats?type=project&id=${proj.id}`} className="w-full">
+                                    <SidebarMenuButton isActive={selectedChat?.id === proj.id && selectedChat?.type === 'project'}>
+                                        <Users className="h-4 w-4" />
+                                        <span>{proj.title}</span>
+                                    </SidebarMenuButton>
+                                </Link>
+                            </SidebarMenuItem>
+                        ))}
+                    </SidebarMenu>
+                </SidebarGroup>
+                <SidebarGroup>
+                    <SidebarGroupLabel>Direct Messages</SidebarGroupLabel>
+                    <SidebarMenu>
+                        {personalChats.map(chat => (
+                            <SidebarMenuItem key={chat.id}>
+                                <Link href={`/chats?type=personal&id=${chat.id}`} className="w-full">
+                                    <SidebarMenuButton isActive={selectedChat?.id === chat.id && selectedChat?.type === 'personal'}>
+                                        <Avatar className="h-6 w-6">
+                                            <AvatarImage src={chat.otherUser.avatarUrl} alt={chat.otherUser.name} />
+                                            <AvatarFallback>{chat.otherUser.name.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <span>{chat.otherUser.name}</span>
+                                    </SidebarMenuButton>
+                                </Link>
+                            </SidebarMenuItem>
+                        ))}
+                    </SidebarMenu>
+                </SidebarGroup>
+            </SidebarContent>
+        </Sidebar>
 
-            <main className="flex-1 p-4 overflow-y-auto">
-                {selectedChat ? (
-                    selectedChat.type === 'personal' ? (
-                        <PersonalChat chatId={selectedChat.id} />
-                    ) : (
-                        <ProjectChat projectId={selectedChat.id} />
-                    )
+        <main className="flex-1 p-4 overflow-y-auto">
+            {selectedChat ? (
+                selectedChat.type === 'personal' ? (
+                    <PersonalChat chatId={selectedChat.id} />
                 ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
-                        <MessageSquare className="h-16 w-16 mb-4" />
-                        <h2 className="text-2xl font-bold">Select a chat</h2>
-                        <p>Choose a conversation from the sidebar to start messaging.</p>
-                    </div>
-                )}
-            </main>
-        </div>
+                    <ProjectChat projectId={selectedChat.id} />
+                )
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
+                    <MessageSquare className="h-16 w-16 mb-4" />
+                    <h2 className="text-2xl font-bold">Select a chat</h2>
+                    <p>Choose a conversation from the sidebar to start messaging.</p>
+                </div>
+            )}
+        </main>
       </SidebarProvider>
-    </>
+    </div>
   )
 }
 
