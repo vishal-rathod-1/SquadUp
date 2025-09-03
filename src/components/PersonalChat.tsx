@@ -9,7 +9,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
 import type { Message, User, PersonalChat as PersonalChatType } from '@/lib/types';
 import { db } from '@/lib/firebase-client';
-import { doc, getDoc, collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { Send, Frown, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { Skeleton } from './ui/skeleton';
@@ -64,6 +64,10 @@ export function PersonalChat({ chatId }: { chatId: string }) {
             }, (err) => { 
               console.error("Error fetching messages:", err);
             });
+        } else {
+           // If chat doesn't exist, we don't create it here anymore.
+           // The UI will show a message if they are mutuals but no chat doc exists yet.
+           setChat(null);
         }
         
       } catch (error) {
@@ -82,7 +86,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user || !userProfile || !otherUser) return;
+    if (!newMessage.trim() || !user || !userProfile || !chat) return;
     
     if (!areMutuals) {
         toast({ title: "Cannot Send Message", description: "You must both follow each other to chat.", variant: "destructive" });
@@ -92,22 +96,29 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     const chatDocRef = doc(db, 'personalChats', chatId);
     const messagesCollectionRef = collection(chatDocRef, 'messages');
     try {
-        const chatDoc = await getDoc(chatDocRef);
-        if (!chatDoc.exists()) {
-            await setDoc(chatDocRef, {
-                participants: [user.uid, otherUser.id], createdAt: serverTimestamp(), lastMessage: null,
-            });
-            // After creating, we should also update the local state to reflect this
-            setChat({ id: chatId, participants: [user.uid, otherUser.id], createdAt: new Date(), lastMessage: null});
-        }
-        await addDoc(messagesCollectionRef, {
-            senderId: user.uid, senderName: userProfile.name, senderAvatarUrl: userProfile.avatarUrl,
-            text: newMessage, createdAt: serverTimestamp(),
+        const messageData = {
+            senderId: user.uid, 
+            senderName: userProfile.name, 
+            senderAvatarUrl: userProfile.avatarUrl,
+            text: newMessage, 
+            createdAt: serverTimestamp(),
+        };
+
+        await addDoc(messagesCollectionRef, messageData);
+        // Also update the lastMessage on the chat document itself
+        await updateDoc(chatDocRef, {
+            lastMessage: {
+                text: newMessage,
+                createdAt: serverTimestamp(),
+                senderId: user.uid,
+            }
         });
+
         setNewMessage('');
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     } catch (error) {
         console.error("Error sending message:", error);
+        toast({ title: "Error", description: "Could not send message.", variant: 'destructive'});
     }
   };
   
@@ -123,21 +134,8 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
         <Users className="h-16 w-16 mb-4" />
-        <h2 className="text-2xl font-bold">Start the conversation</h2>
-        <p className="max-w-sm mx-auto">You and {otherUser.name} are mutual followers. Send a message to start chatting!</p>
-        <div className="w-full mt-6">
-            <form onSubmit={handleSendMessage} className="flex w-full items-center space-x-2">
-                <Input 
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder={"Type a message..."}
-                    autoComplete="off"
-                />
-                <Button type="submit" size="icon" disabled={!newMessage.trim()}>
-                    <Send className="h-4 w-4" />
-                </Button>
-            </form>
-        </div>
+        <h2 className="text-2xl font-bold">Chat not initiated</h2>
+        <p className="max-w-sm mx-auto">This can happen if the chat document wasn't created properly. Please try unfollowing and re-following the user.</p>
       </div>
     );
   }
@@ -181,9 +179,9 @@ export function PersonalChat({ chatId }: { chatId: string }) {
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder={!areMutuals ? "You must both follow each other to chat." : "Type a message..."}
                 autoComplete="off"
-                disabled={!areMutuals}
+                disabled={!areMutuals || !chat}
             />
-            <Button type="submit" size="icon" disabled={!newMessage.trim() || !areMutuals}>
+            <Button type="submit" size="icon" disabled={!newMessage.trim() || !areMutuals || !chat}>
                 <Send className="h-4 w-4" />
             </Button>
         </form>
