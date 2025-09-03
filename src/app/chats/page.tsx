@@ -118,7 +118,7 @@ const ChatPageContent: React.FC = () => {
         setSelectedChat(null);
       }
     }
-  }, [chatTypeFromUrl, chatIdFromUrl, loading, projectChats, personalChats]);
+  }, [chatTypeFromUrl, chatIdFromUrl, loading]);
 
 
   const filteredProjectChats = useMemo(() => {
