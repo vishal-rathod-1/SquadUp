@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Github, Linkedin, Frown, Edit, MessageSquare, UserPlus, FileText, UserCheck } from 'lucide-react';
+import { Github, Linkedin, Frown, Edit, MessageSquare, UserPlus, FileText, UserCheck, Phone } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, writeBatch, documentId, addDoc, serverTimestamp, setDoc, deleteDoc, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
@@ -291,10 +291,11 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
     }
   }
 
-  const handleNavigateToChat = () => {
+  const handleNavigateToChat = (options?: { startCall: boolean }) => {
     if (!user || !userProfile) return;
     const chatId = [user.uid, userProfile.id].sort().join('_');
-    router.push(`/chats?type=personal&id=${chatId}`);
+    const url = `/chats?type=personal&id=${chatId}` + (options?.startCall ? '&action=call' : '');
+    router.push(url);
   };
 
 
@@ -540,7 +541,10 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
                   <>
                     {getFollowButton()}
                     {hasMutualFollow && (
-                        <Button onClick={handleNavigateToChat} className="w-full mt-2"><MessageSquare className="mr-2 h-4 w-4"/>Message</Button>
+                        <div className="flex gap-2 mt-2">
+                            <Button onClick={() => handleNavigateToChat()} className="w-full"><MessageSquare className="mr-2 h-4 w-4"/>Message</Button>
+                            <Button onClick={() => handleNavigateToChat({ startCall: true })} variant="outline" size="icon"><Phone className="h-4 w-4"/></Button>
+                        </div>
                     )}
                   </>
                 )

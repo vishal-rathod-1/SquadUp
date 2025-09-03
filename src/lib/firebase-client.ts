@@ -24,16 +24,26 @@ const auth: Auth = getAuth(app);
 const storage: FirebaseStorage = getStorage(app);
 
 
-export const markNotificationsAsRead = async (userId: string) => {
+export const markNotificationsAsRead = async (userId: string, notifIds?: string[]) => {
   const notifsRef = collection(db, 'notifications');
-  const q = query(notifsRef, where('userId', '==', userId), where('isRead', '==', false));
-  const snapshot = await getDocs(q);
+  
+  let q;
+  if (notifIds && notifIds.length > 0) {
+    // This is less efficient, but necessary if we only want to mark specific notifications as read.
+    // For batching, we have to do it this way.
+  } else {
+     q = query(notifsRef, where('userId', '==', userId), where('isRead', '==', false));
+  }
+  
+  const snapshot = await getDocs(query(notifsRef, where('userId', '==', userId), where('isRead', '==', false)));
 
   if (snapshot.empty) return;
 
   const batch = writeBatch(db);
   snapshot.docs.forEach(docSnapshot => {
-    batch.update(doc(db, 'notifications', docSnapshot.id), { isRead: true });
+     if (!notifIds || notifIds.includes(docSnapshot.id)) {
+        batch.update(doc(db, 'notifications', docSnapshot.id), { isRead: true });
+     }
   });
 
   await batch.commit();

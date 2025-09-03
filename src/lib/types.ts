@@ -114,6 +114,7 @@ export interface Notification {
   isRead: boolean;
   createdAt: any; // Can be a Date or a Firestore Timestamp
   status?: "pending" | "answered";
+  callId?: string;
 }
 
 
@@ -123,6 +124,7 @@ export interface Notification {
 export interface Call {
     id: string;
     callerId: string;
+    callerName: string;
     calleeId: string;
     offer: {
         sdp: string;
@@ -132,8 +134,6 @@ export interface Call {
         sdp: string;
         type: 'answer';
     };
-    status: 'pending' | 'active' | 'ended' | 'declined';
+    status: 'pending' | 'active' | 'ended' | 'declined' | 'rejected';
     notifId?: string;
 }
-
-    

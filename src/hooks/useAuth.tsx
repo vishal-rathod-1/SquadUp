@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { 
   getAuth, 
   onAuthStateChanged, 
@@ -14,9 +14,9 @@ import {
   sendEmailVerification,
   UserCredential
 } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, orderBy, getDocs } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, orderBy, getDocs, writeBatch, updateDoc } from "firebase/firestore";
 import { db, auth } from '@/lib/firebase-client';
-import type { User, Notification } from '@/lib/types';
+import type { User, Notification, Call } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 
 interface AuthContextType {
@@ -31,6 +31,7 @@ interface AuthContextType {
   signOut: () => void;
   refreshUserProfile: () => Promise<void>;
   isUsernameUnique: (username: string) => Promise<boolean>;
+  handleCallAction: (callId: string, notifId: string, action: 'accepted' | 'declined', answer?: RTCSessionDescriptionInit) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -111,17 +112,10 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   useEffect(() => {
     if (user) {
       const notifsRef = collection(db, 'notifications');
-      // The query requires a composite index. To avoid this, we'll sort on the client.
-      const q = query(notifsRef, where('userId', '==', user.uid));
+      const q = query(notifsRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
-        // Sort notifications by creation date, descending
-        notifs.sort((a, b) => {
-          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
-          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
-          return dateB.getTime() - dateA.getTime();
-        });
         setNotifications(notifs);
       });
 
@@ -137,17 +131,15 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
     const newUser = userCredential.user;
     
-    // Send verification email right after user creation
     await sendEmailVerification(newUser);
     
     const userDocRef = doc(db, "users", newUser.uid);
-    // Create the user profile document in Firestore
     await setDoc(userDocRef, {
       name: data.name,
       username: data.username,
       email: newUser.email,
       bio: data.bio,
-      skills: data.skills ? data.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+      skills: data.skills.split(',').map((s: string) => s.trim()).filter(Boolean),
       githubUrl: data.githubUrl,
       linkedinUrl: data.linkedinUrl,
       followers: [],
@@ -156,7 +148,6 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       avatarUrl: `https://picsum.photos/seed/${newUser.uid}/200`
     });
 
-    // Sign the user out to force them to verify their email before logging in
     await firebaseSignOut(auth);
     return userCredential;
   };
@@ -177,6 +168,23 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       }
   }
 
+  const handleCallAction = useCallback(async (callId: string, notifId: string, action: 'accepted' | 'declined', answer?: RTCSessionDescriptionInit) => {
+    const callDocRef = doc(db, 'calls', callId);
+    const notifDocRef = doc(db, 'notifications', notifId);
+    
+    const batch = writeBatch(db);
+
+    if (action === 'accepted' && answer) {
+        batch.update(callDocRef, { status: 'active', answer: answer });
+    } else {
+        batch.update(callDocRef, { status: action }); // 'declined'
+    }
+    
+    batch.update(notifDocRef, { status: 'answered' });
+    
+    await batch.commit();
+  }, []);
+
   const value = {
     user,
     userProfile,
@@ -189,6 +197,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     signOut,
     refreshUserProfile,
     isUsernameUnique,
+    handleCallAction,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

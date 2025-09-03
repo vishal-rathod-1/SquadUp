@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
-import { LogIn, LogOut, User as UserIcon, MessageSquare, Bell, UserPlus, UserCheck } from "lucide-react";
+import { LogIn, LogOut, User as UserIcon, Bell, PhoneOff, PhoneIncoming, Check, X } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import { Menu } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -14,14 +14,13 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { markNotificationsAsRead, db } from "@/lib/firebase-client";
 import { cn } from "@/lib/utils";
-import type { Notification } from "@/lib/types";
+import type { Notification, Call } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { doc, writeBatch, arrayUnion, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
+import { doc, writeBatch, arrayUnion, collection, query, where, getDocs, serverTimestamp, updateDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 
@@ -38,7 +37,7 @@ const NavLinks = ({isMobile = false}: {isMobile?: boolean}) => {
 )};
 
 export function Header() {
-  const { user, userProfile, loading, signOut, notifications, setNotifications } = useAuth();
+  const { user, userProfile, loading, signOut, notifications, setNotifications, handleCallAction } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
 
@@ -52,7 +51,10 @@ export function Header() {
   const handleOpenNotifications = async (open: boolean) => {
     if (open && hasUnread && user) {
         try {
-            await markNotificationsAsRead(user.uid);
+            const notifsToMark = notifications.filter(n => n.type !== 'incoming_call').map(n => n.id);
+            if(notifsToMark.length > 0) {
+              await markNotificationsAsRead(user.uid, notifsToMark);
+            }
             // Optimistically update the UI
             setNotifications(prev => prev.map(n => ({...n, isRead: true})));
         } catch (error) {
@@ -109,6 +111,21 @@ export function Header() {
       }
   };
 
+  const onCallAction = async (notification: Notification, action: 'accepted' | 'declined', e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!notification.callId) return;
+
+    try {
+        await handleCallAction(notification.callId, notification.id, action);
+        if (action === 'accepted') {
+            router.push(notification.link);
+        }
+        toast({ title: `Call ${action}` });
+    } catch (error) {
+        console.error(`Error ${action} call:`, error);
+        toast({ title: "Action Failed", description: `Could not ${action} the call.`, variant: "destructive" });
+    }
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -159,19 +176,22 @@ export function Header() {
                            <DropdownMenuItem disabled>No new notifications</DropdownMenuItem>
                       ) : (
                          notifications.map(notif => (
-                            <DropdownMenuItem key={notif.id} className={cn(!notif.isRead && "font-bold")} onSelect={(e) => {
+                            <DropdownMenuItem key={notif.id} className={cn(!notif.isRead && "font-bold", "flex flex-col items-start gap-2")} onSelect={(e) => {
                                 e.preventDefault();
-                                router.push(notif.link);
+                                if(notif.type !== 'incoming_call') router.push(notif.link);
                             }}>
-                                <div className="flex flex-col w-full">
-                                    <p className="text-sm truncate whitespace-normal">{notif.message}</p>
-                                    {notif.type === 'follow_request' && notif.status !== 'accepted' && (
-                                        <div className="flex gap-2 mt-2">
-                                            <Button size="sm" onClick={(e) => handleAcceptRequest(notif, e)}>Accept</Button>
-                                            {/* <Button size="sm" variant="outline">Decline</Button> */}
-                                        </div>
-                                    )}
-                                </div>
+                                <p className="text-sm whitespace-normal">{notif.message}</p>
+                                {notif.type === 'follow_request' && notif.status !== 'accepted' && (
+                                    <div className="flex gap-2 mt-1">
+                                        <Button size="sm" onClick={(e) => handleAcceptRequest(notif, e)}>Accept</Button>
+                                    </div>
+                                )}
+                                 {notif.type === 'incoming_call' && notif.status !== 'answered' && (
+                                     <div className="flex gap-2 mt-1 self-end">
+                                        <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-500/10 hover:text-red-600" onClick={(e) => onCallAction(notif, 'declined', e)}><PhoneOff className="mr-2 h-4 w-4"/>Decline</Button>
+                                        <Button size="sm" className="bg-green-500 hover:bg-green-600 text-white" onClick={(e) => onCallAction(notif, 'accepted', e)}><PhoneIncoming className="mr-2 h-4 w-4"/>Accept</Button>
+                                    </div>
+                                 )}
                             </DropdownMenuItem>
                          ))
                       )}
