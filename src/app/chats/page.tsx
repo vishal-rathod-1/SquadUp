@@ -107,21 +107,20 @@ const ChatPageContent: React.FC = () => {
     const chatType = searchParams.get('type');
     const chatId = searchParams.get('id');
 
-    if ((chatType === 'project' || chatType === 'personal') && chatId) {
-        if(loading) return; 
+    if ((chatType === 'project' || chatType === 'personal') && chatId && !loading) {
+      // Find the chat in the currently loaded chats
+      const chatExists = chatType === 'project'
+        ? projectChats.some(p => p.id === chatId)
+        : personalChats.some(p => p.id === chatId);
 
-        const chatExists = chatType === 'project' 
-            ? projectChats.some(p => p.id === chatId)
-            : personalChats.some(p => p.id === chatId);
-
-        if (chatExists) {
-           setSelectedChat({ type: chatType as 'project' | 'personal', id: chatId });
-        } else {
-            // If the chat doesn't exist (e.g. from a stale URL), don't select it.
-             setSelectedChat(null);
-        }
+      if (chatExists) {
+        setSelectedChat({ type: chatType as 'project' | 'personal', id: chatId });
+      } else {
+        // If the chat doesn't exist (e.g., from a stale URL), don't select it.
+        setSelectedChat(null);
+      }
     }
-  }, [searchParams, projectChats, personalChats, loading]);
+  }, [searchParams, loading]); // Removed projectChats and personalChats from dependencies
 
 
   const filteredProjectChats = useMemo(() => {
