@@ -136,7 +136,7 @@ export function PersonalChat({ chatId }: { chatId: string }) {
       if (unsubscribeCall) unsubscribeCall();
       cleanupCall();
     };
-  }, [chatId, user?.uid]);
+  }, [chatId, user?.uid, cleanupCall]);
 
 
    // Effect to handle URL action to start a call
