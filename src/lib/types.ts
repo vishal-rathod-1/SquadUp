@@ -109,32 +109,10 @@ export interface FollowRequest {
 export interface Notification {
   id: string;
   userId: string;          // target user
-  type: "request_received" | "request_accepted" | "new_message" | "new_follower" | "follow_request" | "incoming_call";
+  type: "request_received" | "request_accepted" | "new_message" | "new_follower" | "follow_request";
   message: string;
   link: string; // URL to navigate to
   isRead: boolean;
   createdAt: any; // Can be a Date or a Firestore Timestamp
   status?: "pending" | "answered";
-  callId?: string;
-}
-
-
-// =============================
-// Video Call Model
-// =============================
-export interface Call {
-    id: string;
-    callerId: string;
-    callerName: string;
-    calleeId: string;
-    offer: {
-        sdp: string;
-        type: 'offer';
-    };
-    answer?: {
-        sdp: string;
-        type: 'answer';
-    };
-    status: 'pending' | 'active' | 'ended' | 'declined' | 'rejected';
-    notifId?: string;
 }

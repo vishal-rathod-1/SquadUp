@@ -14,9 +14,9 @@ import {
   sendEmailVerification,
   UserCredential
 } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, orderBy, getDocs, writeBatch, updateDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, getDocs, writeBatch, updateDoc } from "firebase/firestore";
 import { db, auth } from '@/lib/firebase-client';
-import type { User, Notification, Call } from '@/lib/types';
+import type { User, Notification } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 
 interface AuthContextType {
@@ -31,7 +31,6 @@ interface AuthContextType {
   signOut: () => void;
   refreshUserProfile: () => Promise<void>;
   isUsernameUnique: (username: string) => Promise<boolean>;
-  handleCallAction: (callId: string, notifId: string, action: 'accepted' | 'declined' | 'rejected' | 'ended', answer?: RTCSessionDescriptionInit) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -130,6 +129,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+        // Client-side sorting
         notifs.sort((a, b) => {
           const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
           const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
@@ -188,27 +188,6 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       }
   }
 
-  const handleCallAction = useCallback(async (callId: string, notifId: string, action: 'accepted' | 'declined' | 'rejected' | 'ended', answer?: RTCSessionDescriptionInit) => {
-    const callDocRef = doc(db, 'calls', callId);
-    
-    const batch = writeBatch(db);
-
-    const updateData: Partial<Call> = { status: action };
-    if (action === 'accepted' && answer) {
-        updateData.answer = answer;
-        updateData.status = 'active';
-    }
-    
-    batch.update(callDocRef, updateData);
-    
-    if (notifId) {
-      const notifDocRef = doc(db, 'notifications', notifId);
-      batch.update(notifDocRef, { status: 'answered' });
-    }
-    
-    await batch.commit();
-  }, []);
-
   const value = {
     user,
     userProfile,
@@ -221,7 +200,6 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     signOut,
     refreshUserProfile,
     isUsernameUnique,
-    handleCallAction,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

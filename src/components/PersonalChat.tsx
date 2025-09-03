@@ -7,31 +7,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
-import type { Message, User, PersonalChat as PersonalChatType, Call } from '@/lib/types';
+import type { Message, User, PersonalChat as PersonalChatType } from '@/lib/types';
 import { db } from '@/lib/firebase-client';
-import { doc, getDoc, collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, setDoc, writeBatch, updateDoc, deleteDoc, where, getDocs } from 'firebase/firestore';
-import { Send, Frown, Phone, Mic, MicOff, Video, VideoOff, PhoneOff, Users } from 'lucide-react';
+import { doc, getDoc, collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, setDoc } from 'firebase/firestore';
+import { Send, Frown, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { Skeleton } from './ui/skeleton';
 import { Alert, AlertTitle, AlertDescription } from './ui/alert';
-import { useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
-
-// Firestore collections for WebRTC signaling
-const servers = {
-  iceServers: [
-    {
-      urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'],
-    },
-  ],
-  iceCandidatePoolSize: 10,
-};
-
 
 export function PersonalChat({ chatId }: { chatId: string }) {
-  const { user, userProfile, handleCallAction } = useAuth();
-  const searchParams = useSearchParams();
+  const { user, userProfile } = useAuth();
   const { toast } = useToast();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -40,98 +26,40 @@ export function PersonalChat({ chatId }: { chatId: string }) {
   const [otherUser, setOtherUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   
-  // Video call state
-  const [callState, setCallState] = useState<'idle' | 'calling' | 'receiving' | 'connected' | 'ended'>('idle');
-  const [callData, setCallData] = useState<Call | null>(null);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
-  
-  const peerConnection = useRef<RTCPeerConnection | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const isMounted = useRef(true);
 
   const areMutuals = React.useMemo(() => {
     if (!userProfile || !otherUser) return false;
-    // Ensure `following` and `followers` arrays exist before checking
     const currentUserFollowing = userProfile.following || [];
     const otherUserFollowers = otherUser.followers || [];
     return currentUserFollowing.includes(otherUser.id) && otherUserFollowers.includes(userProfile.id);
   }, [userProfile, otherUser]);
 
-  const cleanupCall = useCallback(async () => {
-    console.log("Cleaning up call...");
-    if (peerConnection.current) {
-        peerConnection.current.getTransceivers().forEach(transceiver => {
-            if(transceiver.stop) transceiver.stop();
-        });
-        peerConnection.current.close();
-        peerConnection.current = null;
-    }
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        setLocalStream(null);
-    }
-    if (isMounted.current) {
-      setRemoteStream(null);
-      setCallState('idle');
-      setCallData(null);
-    }
-  }, [localStream]);
-
-  // Main useEffect for setting up chat and call listeners
   useEffect(() => {
-    isMounted.current = true;
     if (!chatId || !user) return;
     
     let unsubscribeMessages: () => void;
-    let unsubscribeCall: () => void;
-    
     setLoading(true);
 
-    const setup = async () => {
+    const setupChat = async () => {
       try {
-        // Fetch other user's data first
         const otherUserId = chatId.replace(user.uid, '').replace('_', '');
         const userDoc = await getDoc(doc(db, 'users', otherUserId));
-        if (userDoc.exists() && isMounted.current) {
-            const fetchedOtherUser = { id: userDoc.id, ...userDoc.data() } as User;
-            setOtherUser(fetchedOtherUser);
-            
-            // 2. Setup Call Listeners & handle incoming calls from this specific user
-            const callQuery = query(
-              collection(db, 'calls'), 
-              where('calleeId', '==', user.uid), 
-              where('callerId', '==', fetchedOtherUser.id),
-              where('status', '==', 'pending')
-            );
-            unsubscribeCall = onSnapshot(callQuery, (snapshot) => {
-                if (!isMounted.current) return;
-                if (!snapshot.empty) {
-                    const call = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Call;
-                    setCallData(call);
-                    setCallState('receiving');
-                }
-            });
-
+        if (userDoc.exists()) {
+            setOtherUser({ id: userDoc.id, ...userDoc.data() } as User);
         } else {
-            if (isMounted.current) setLoading(false);
+            setLoading(false);
             return;
         }
 
-        // 1. Setup Chat
         const chatDocRef = doc(db, 'personalChats', chatId);
         const chatDoc = await getDoc(chatDocRef);
         
         if (chatDoc.exists()) {
-             if(isMounted.current) {
-                setChat({ id: chatDoc.id, ...chatDoc.data() } as PersonalChatType);
-            }
-             const messagesCollectionRef = collection(db, `personalChats/${chatId}/messages`);
-             const q = query(messagesCollectionRef, orderBy('createdAt', 'asc'));
-             unsubscribeMessages = onSnapshot(q, (querySnapshot) => {
-              if (!isMounted.current) return;
+            setChat({ id: chatDoc.id, ...chatDoc.data() } as PersonalChatType);
+            const messagesCollectionRef = collection(db, `personalChats/${chatId}/messages`);
+            const q = query(messagesCollectionRef, orderBy('createdAt', 'asc'));
+            unsubscribeMessages = onSnapshot(q, (querySnapshot) => {
               setMessages(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
             }, (err) => { 
               console.error("Error fetching messages:", err);
@@ -139,198 +67,18 @@ export function PersonalChat({ chatId }: { chatId: string }) {
         }
         
       } catch (error) {
-        console.error("Error setting up chat/call:", error);
+        console.error("Error setting up chat:", error);
       } finally {
-        if(isMounted.current) setLoading(false);
+        setLoading(false);
       }
     };
     
-    setup();
+    setupChat();
 
     return () => {
-      isMounted.current = false;
       if (unsubscribeMessages) unsubscribeMessages();
-      if (unsubscribeCall) unsubscribeCall();
-      cleanupCall();
     };
-  }, [chatId, user?.uid, cleanupCall]);
-
-
-   // Effect to handle URL action to start a call
-  useEffect(() => {
-    if (searchParams.get('action') === 'call' && callState === 'idle' && otherUser && userProfile && areMutuals) {
-        startCall(otherUser);
-    }
-  }, [searchParams, callState, otherUser, userProfile, areMutuals]);
-
-  // Effect to listen for changes on the specific call document
-  useEffect(() => {
-    if (!callData?.id) return;
-    const unsubscribe = onSnapshot(doc(db, 'calls', callData.id), async (docSnapshot) => {
-        if (!isMounted.current || !docSnapshot.exists()) return;
-        const updatedCall = docSnapshot.data() as Call;
-        
-        setCallData(prev => ({...prev, ...updatedCall}));
-
-        // Handle receiving an answer
-        if (peerConnection.current && !peerConnection.current.currentRemoteDescription && updatedCall.answer) {
-            console.log("Got remote description (answer)");
-            const answerDescription = new RTCSessionDescription(updatedCall.answer);
-            await peerConnection.current.setRemoteDescription(answerDescription);
-        }
-
-        // Handle call status changes from the other user
-        if(updatedCall.status === 'ended' || updatedCall.status === 'declined' || updatedCall.status === 'rejected') {
-            toast({ title: `Call ${updatedCall.status}`, description: `${callData.callerId === user?.uid ? otherUser?.name : 'You'} ended the call.`});
-            await cleanupCall();
-        }
-    });
-
-    return unsubscribe;
-  }, [callData?.id, cleanupCall, user?.uid, otherUser?.name]);
-
-   // Effect to listen for remote ICE candidates
-   useEffect(() => {
-    if (!callData?.id || !peerConnection.current) return;
-
-    // We listen to the collection that the OTHER user is writing to
-    const candidatesCollectionName = callData.callerId === user?.uid ? 'calleeCandidates' : 'callerCandidates';
-    const candidatesCollection = collection(db, 'calls', callData.id, candidatesCollectionName);
-    
-    const unsubscribe = onSnapshot(candidatesCollection, (snapshot) => {
-      snapshot.docChanges().forEach(async (change) => {
-        if (change.type === 'added') {
-          await peerConnection.current?.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-        }
-      });
-    });
-    return unsubscribe;
-  }, [callData?.id, user?.uid]);
-
-
-  const startCall = async (targetUser: User) => {
-    if (!user || !userProfile || !areMutuals) return;
-
-    setCallState('calling');
-    peerConnection.current = new RTCPeerConnection(servers);
-
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        setLocalStream(stream);
-        stream.getTracks().forEach(track => peerConnection.current!.addTrack(track, stream));
-    } catch(err) {
-        toast({ title: "Camera/Mic Error", description: "Could not access camera or microphone.", variant: "destructive"});
-        await cleanupCall();
-        return;
-    }
-
-    const callDocRef = doc(collection(db, 'calls'));
-    const offerCandidates = collection(callDocRef, 'callerCandidates');
-    
-    // Get candidates for caller, save to db
-    peerConnection.current.onicecandidate = event => {
-        event.candidate && addDoc(offerCandidates, event.candidate.toJSON());
-    };
-
-    // Listen for remote stream
-    peerConnection.current.ontrack = (event) => {
-        setRemoteStream(event.streams[0]);
-    };
-
-    const offerDescription = await peerConnection.current.createOffer();
-    await peerConnection.current.setLocalDescription(offerDescription);
-
-    const offer = { sdp: offerDescription.sdp!, type: offerDescription.type };
-
-    const notifDocRef = doc(collection(db, "notifications"));
-
-    const newCallData: Omit<Call, 'id'> = {
-        callerId: user.uid,
-        callerName: userProfile.name,
-        calleeId: targetUser.id,
-        offer,
-        status: 'pending',
-        notifId: notifDocRef.id
-    };
-
-    const batch = writeBatch(db);
-    batch.set(callDocRef, newCallData);
-    batch.set(notifDocRef, {
-        userId: targetUser.id,
-        type: 'incoming_call',
-        message: `${userProfile.name} is calling you.`,
-        link: `/chats?type=personal&id=${chatId}`,
-        isRead: false,
-        createdAt: serverTimestamp(),
-        status: 'pending',
-        callId: callDocRef.id
-    });
-    
-    await batch.commit();
-    setCallData({id: callDocRef.id, ...newCallData});
-  };
-
-  const answerCall = async () => {
-    if (!callData || !user) return;
-    
-    peerConnection.current = new RTCPeerConnection(servers);
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setLocalStream(stream);
-      stream.getTracks().forEach(track => peerConnection.current!.addTrack(track, stream));
-    } catch(err) {
-        toast({ title: "Camera/Mic Error", description: "Could not access camera or microphone.", variant: "destructive"});
-        await hangUp('rejected');
-        return;
-    }
-    
-    setCallState('connected');
-
-    const callDocRef = doc(db, 'calls', callData.id);
-    const calleeCandidates = collection(callDocRef, 'calleeCandidates');
-
-    peerConnection.current.onicecandidate = event => {
-        event.candidate && addDoc(calleeCandidates, event.candidate.toJSON());
-    };
-
-    peerConnection.current.ontrack = (event) => {
-        setRemoteStream(event.streams[0]);
-    };
-
-    const callSnapshot = await getDoc(callDocRef);
-    const existingCallData = callSnapshot.data() as Call;
-    await peerConnection.current.setRemoteDescription(new RTCSessionDescription(existingCallData.offer));
-
-    const answerDescription = await peerConnection.current.createAnswer();
-    await peerConnection.current.setLocalDescription(answerDescription);
-
-    const answer = { type: answerDescription.type, sdp: answerDescription.sdp! };
-
-    await handleCallAction(callData.id, callData.notifId!, 'accepted', answer);
-  };
-
-  const hangUp = async (reason: Call['status'] = 'ended') => {
-      if (!callData) return;
-      
-      await handleCallAction(callData.id, callData.notifId!, reason);
-      await cleanupCall();
-      toast({ title: "Call Ended" });
-  }
-
-  const toggleMute = () => {
-    if (localStream) {
-        localStream.getAudioTracks().forEach(track => track.enabled = !track.enabled);
-        setIsMuted(!isMuted);
-    }
-  }
-
-  const toggleVideo = () => {
-      if (localStream) {
-        localStream.getVideoTracks().forEach(track => track.enabled = !track.enabled);
-        setIsVideoOff(!isVideoOff);
-      }
-  }
+  }, [chatId, user?.uid]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -349,6 +97,8 @@ export function PersonalChat({ chatId }: { chatId: string }) {
             await setDoc(chatDocRef, {
                 participants: [user.uid, otherUser.id], createdAt: serverTimestamp(), lastMessage: null,
             });
+            // After creating, we should also update the local state to reflect this
+            setChat({ id: chatId, participants: [user.uid, otherUser.id], createdAt: new Date(), lastMessage: null});
         }
         await addDoc(messagesCollectionRef, {
             senderId: user.uid, senderName: userProfile.name, senderAvatarUrl: userProfile.avatarUrl,
@@ -392,56 +142,6 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     );
   }
 
-  if (callState !== 'idle' && callState !== 'ended') {
-    return (
-        <Card className="h-full flex flex-col bg-slate-900 text-white">
-             <CardContent className="flex-1 flex flex-col items-center justify-between p-4 relative">
-                
-                {/* Local Video Preview */}
-                <div className="absolute top-4 right-4 z-20">
-                    {localStream && <video ref={video => { if (video) video.srcObject = localStream }} muted autoPlay className="w-48 h-36 rounded-md object-cover border-2 border-slate-700"/>}
-                </div>
-
-                {/* Remote Video */}
-                 <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center flex-1">
-                    {remoteStream ? (
-                        <video ref={video => { if (video) video.srcObject = remoteStream }} autoPlay className="w-full h-full object-cover"/>
-                    ) : (
-                        <div className="text-center text-slate-500">
-                             <Avatar className="h-24 w-24 mb-4 ring-4 ring-slate-700 mx-auto">
-                                 <AvatarImage src={otherUser.avatarUrl} />
-                                 <AvatarFallback>{otherUser.name.charAt(0)}</AvatarFallback>
-                             </Avatar>
-                             <p>Waiting for {otherUser.name}...</p>
-                             <p className="text-slate-400 capitalize">{callState}...</p>
-                        </div>
-                    )}
-                 </div>
-
-                 {callState === 'receiving' && (
-                     <div className="absolute bottom-16 flex flex-col items-center gap-4 z-20">
-                         <p>{callData?.callerName} is calling...</p>
-                         <div className="flex gap-4">
-                             <Button onClick={() => hangUp('declined')} variant="destructive" size="lg" className="rounded-full h-16 w-16"><PhoneOff /></Button>
-                             <Button onClick={answerCall} variant="secondary" size="lg" className="rounded-full h-16 w-16 bg-green-500 hover:bg-green-600"><Phone /></Button>
-                         </div>
-                     </div>
-                 )}
-
-             </CardContent>
-             <CardFooter className="p-4 border-t border-slate-700 flex justify-center">
-                 {(callState === 'connected' || callState === 'calling' || callState === 'receiving') && (
-                     <div className="flex items-center gap-4">
-                         <Button onClick={toggleMute} variant="secondary" size="icon" className={cn("rounded-full", isMuted && "bg-destructive")}>{isMuted ? <MicOff/> : <Mic />}</Button>
-                         <Button onClick={() => hangUp('ended')} variant="destructive" size="lg" className="rounded-full h-16 w-16"><PhoneOff /></Button>
-                         <Button onClick={toggleVideo} variant="secondary" size="icon" className={cn("rounded-full", isVideoOff && "bg-destructive")}>{isVideoOff ? <VideoOff/> : <Video />}</Button>
-                     </div>
-                 )}
-             </CardFooter>
-        </Card>
-    )
-  }
-
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between p-4 border-b">
@@ -452,7 +152,6 @@ export function PersonalChat({ chatId }: { chatId: string }) {
             </Avatar>
             <CardTitle>{otherUser.name}</CardTitle>
         </div>
-        <Button onClick={() => startCall(otherUser)} size="icon" variant="outline" disabled={!areMutuals}><Phone className="h-4 w-4"/></Button>
       </CardHeader>
       <CardContent className="flex-1 p-4 overflow-y-auto space-y-4">
         {messages.map(msg => (

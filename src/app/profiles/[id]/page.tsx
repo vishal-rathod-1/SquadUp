@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Github, Linkedin, Frown, Edit, MessageSquare, UserPlus, FileText, UserCheck, Phone } from 'lucide-react';
+import { Github, Linkedin, Frown, Edit, MessageSquare, UserPlus, FileText, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, writeBatch, documentId, addDoc, serverTimestamp, setDoc, deleteDoc, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
@@ -300,10 +300,10 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
     }
   }
 
-  const handleNavigateToChat = (options?: { startCall: boolean }) => {
+  const handleNavigateToChat = () => {
     if (!user || !userProfile) return;
     const chatId = [user.uid, userProfile.id].sort().join('_');
-    const url = `/chats?type=personal&id=${chatId}` + (options?.startCall ? '&action=call' : '');
+    const url = `/chats?type=personal&id=${chatId}`;
     router.push(url);
   };
 
@@ -552,7 +552,6 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
                     {hasMutualFollow && (
                         <div className="flex gap-2 mt-2">
                             <Button onClick={() => handleNavigateToChat()} className="w-full"><MessageSquare className="mr-2 h-4 w-4"/>Message</Button>
-                            <Button onClick={() => handleNavigateToChat({ startCall: true })} variant="outline" size="icon"><Phone className="h-4 w-4"/></Button>
                         </div>
                     )}
                   </>
