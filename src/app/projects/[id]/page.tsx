@@ -72,9 +72,8 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
             const teamData = { id: teamDoc.id, ...teamDoc.data() } as Team;
 
             // Enrich team members with user data
-            if (teamData.members && teamData.members.length > 0) {
-              const memberIds = teamData.members.map(m => m.userId);
-              const usersQuery = query(collection(db, 'users'), where(documentId(), 'in', memberIds));
+            if (teamData.memberIds && teamData.memberIds.length > 0) {
+              const usersQuery = query(collection(db, 'users'), where(documentId(), 'in', teamData.memberIds));
               const userSnapshots = await getDocs(usersQuery);
               const usersData = userSnapshots.docs.reduce((acc, userDoc) => {
                 acc[userDoc.id] = userDoc.data() as User;
@@ -135,7 +134,7 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
   
   const isUserInSquad = useMemo(() => {
     if (!user || !team) return false;
-    return team.members.some(member => member.userId === user.uid);
+    return team.memberIds.includes(user.uid);
   }, [user, team]);
 
   const isSquadFull = useMemo(() => {
@@ -509,5 +508,3 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
 };
 
 export default ProjectDetailPage;
-
-    

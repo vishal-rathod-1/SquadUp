@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MessageSquare, Frown, Search, Users, User } from 'lucide-react';
 import Link from 'next/link';
-import type { Project, Team, PersonalChat } from '@/lib/types';
+import type { Project, Team, PersonalChat, User as UserType } from '@/lib/types';
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { collection, getDocs, query, where, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase-client';
@@ -74,9 +74,9 @@ const ChatPageContent: React.FC = () => {
                 const usersQuery = query(collection(db, 'users'), where(documentId(), 'in', uniqueOtherUserIds));
                 const userSnapshots = await getDocs(usersQuery);
                 const usersData = userSnapshots.docs.reduce((acc, userDoc) => {
-                    acc[userDoc.id] = userDoc.data();
+                    acc[userDoc.id] = userDoc.data() as UserType;
                     return acc;
-                }, {} as {[key: string]: any});
+                }, {} as {[key: string]: UserType});
 
                 const enrichedPersonalChats = personalChatsData.map(chat => {
                     const otherUserId = chat.participants.find(pId => pId !== user.uid)!;
@@ -108,16 +108,18 @@ const ChatPageContent: React.FC = () => {
     const chatId = searchParams.get('id');
 
     if ((chatType === 'project' || chatType === 'personal') && chatId) {
-        // Ensure the chat exists in the user's lists before setting it
-        const chatExists = (chatType === 'project' && projectChats.some(p => p.id === chatId)) || 
-                           (chatType === 'personal' && personalChats.some(p => p.id === chatId));
+        if(loading) return; 
 
-        if(loading) return; // Wait for chats to load
+        const chatExists = chatType === 'project' 
+            ? projectChats.some(p => p.id === chatId)
+            : personalChats.some(p => p.id === chatId);
 
-        // The check below is imperfect because chats might not be loaded yet.
-        // A better approach might involve a loading state that gets resolved after chat fetching.
-        // For now, let's optimistically set it.
-        setSelectedChat({ type: chatType as 'project' | 'personal', id: chatId });
+        if (chatExists) {
+           setSelectedChat({ type: chatType as 'project' | 'personal', id: chatId });
+        } else {
+            // If the chat doesn't exist (e.g. from a stale URL), don't select it.
+             setSelectedChat(null);
+        }
     }
   }, [searchParams, projectChats, personalChats, loading]);
 
@@ -137,18 +139,18 @@ const ChatPageContent: React.FC = () => {
 
     if (loading) {
       return (
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 h-full">
-            <Card className="col-span-1">
+         <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-3 gap-4 h-full">
+            <Card className="col-span-1 md:col-span-1">
                 <CardHeader>
                     <Skeleton className="h-6 w-3/4" />
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 p-2">
                      {[...Array(5)].map((_, i) => (
                          <Skeleton key={i} className="h-12 w-full" />
                     ))}
                 </CardContent>
             </Card>
-            <Card className="col-span-2">
+            <Card className="col-span-1 md:col-span-3 lg:col-span-2">
                 <CardContent className="flex items-center justify-center h-full">
                     <p className="text-muted-foreground">Loading chats...</p>
                 </CardContent>
@@ -282,7 +284,7 @@ const ChatsPage: NextPage = () => {
             <h1 className="text-4xl font-bold">The Spill</h1>
          </div>
          <div className="flex-1">
-             <Suspense fallback={<div>Loading...</div>}>
+             <Suspense fallback={<div className="text-center">Loading...</div>}>
                 <ChatPageContent />
             </Suspense>
          </div>
@@ -292,5 +294,3 @@ const ChatsPage: NextPage = () => {
 };
 
 export default ChatsPage;
-
-    

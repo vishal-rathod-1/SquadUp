@@ -6,7 +6,7 @@ import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, g
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase-client';
 import { useAuth } from '@/hooks/useAuth';
-import type { Message, PersonalChat as PersonalChatType, User, Call } from '@/lib/types';
+import type { Message, PersonalChat as PersonalChatType, User, Call, Notification } from '@/lib/types';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -17,7 +17,6 @@ import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import Image from 'next/image';
 import { Progress } from './ui/progress';
-import type { Notification } from '@/lib/types';
 
 interface PersonalChatProps {
   chatId: string;
@@ -48,7 +47,6 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [hasMutualFollow, setHasMutualFollow] = useState(false);
   
-  // Video Call State
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const remoteStream = useRef<MediaStream | null>(null);
@@ -107,8 +105,6 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     }
   }, [dismiss]);
 
-
-  // Main useEffect for chat messages and info
   useEffect(() => {
     let unsubscribeMessages: () => void = () => {};
     let unsubscribeChatInfo: () => void = () => {};
@@ -125,13 +121,16 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
             getDoc(userDocRef).then(userDoc => {
               if (userDoc.exists()) {
                 const otherUserData = { id: userDoc.id, ...userDoc.data() } as User;
-                setChatInfo({ otherUser: otherUserData });
-                const isFollowing = userProfile.following?.includes(otherUserData.id);
-                const isFollowedBy = otherUserData.followers?.includes(user.uid);
-                setHasMutualFollow(!!isFollowing && !!isFollowedBy);
+                if(isMounted.current) {
+                    setChatInfo({ otherUser: otherUserData });
+                    const isFollowing = userProfile.following?.includes(otherUserData.id);
+                    const isFollowedBy = otherUserData.followers?.includes(user.uid);
+                    setHasMutualFollow(!!isFollowing && !!isFollowedBy);
+                }
               }
             }).catch(e => {
                 console.error("Error fetching other user's profile", e);
+            }).finally(() => {
                 if (isMounted.current) setLoading(false);
             });
           } else {
@@ -140,6 +139,9 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
         } else {
              if (isMounted.current) setLoading(false);
         }
+      }, (err) => {
+          console.error("Error fetching chat info:", err);
+          if (isMounted.current) setLoading(false);
       });
       
       const messagesRef = collection(db, 'personalChats', chatId, 'messages');
@@ -147,10 +149,8 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
       unsubscribeMessages = onSnapshot(q, (querySnapshot) => {
         if (!isMounted.current) return;
         setMessages(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
-        setLoading(false);
       }, (err) => { 
         console.error("Error fetching messages:", err);
-        if (isMounted.current) setLoading(false);
       });
 
     } else {
@@ -179,13 +179,11 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
         if (!isMounted.current) return;
         if (!snapshot.empty) {
             const callNotification = {id: snapshot.docs[0].id, ...snapshot.docs[0].data()} as Notification;
-            // Prevent re-triggering for the same call
             if(callStatus === 'idle' && incomingCall?.id !== callNotification.id) {
                 setIncomingCall(callNotification);
                 setCallStatus('receiving');
             }
         } else {
-            // If the notification is gone and we are in 'receiving' state, clean up.
             if(callStatus === 'receiving') {
                 cleanupCall();
             }
@@ -193,7 +191,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     });
 
     return () => unsubscribe();
-}, [user?.uid, callStatus, cleanupCall, incomingCall]);
+}, [user?.uid, callStatus, cleanupCall, incomingCall?.id]);
 
  useEffect(() => {
     if (callStatus === 'receiving' && incomingCall) {
@@ -205,14 +203,13 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
             duration: 60000, 
             action: (
                 <div className="flex gap-2">
-                    <Button onClick={() => handleAnswerCall(incomingCall.link, incomingCall.id)}>Accept</Button>
-                    <Button variant="destructive" onClick={() => handleDeclineCall(incomingCall.link, incomingCall.id)}>Decline</Button>
+                    <Button onClick={() => handleAnswerCall(incomingCall)}>Accept</Button>
+                    <Button variant="destructive" onClick={() => handleDeclineCall(incomingCall)}>Decline</Button>
                 </div>
             ),
              onClose: () => {
-                 // Check if the call is still in receiving state when the toast times out
-                 if (callStatus === 'receiving') {
-                    handleDeclineCall(incomingCall.link, incomingCall.id);
+                 if (isMounted.current && callStatus === 'receiving') {
+                    handleDeclineCall(incomingCall);
                  }
              }
         });
@@ -349,6 +346,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
         const stream = event.streams[0];
         if (isMounted.current) {
             remoteStream.current = stream;
+            setCallStatus('connected');
         }
         if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = stream;
@@ -384,9 +382,6 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
         }
         if (pc.current && !pc.current.currentRemoteDescription && data?.answer) {
             pc.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-             if (isMounted.current) {
-                setCallStatus('connected');
-            }
         }
     });
 
@@ -402,14 +397,18 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     callListeners.current.push(unsubCallDoc, unsubAnswerCandidates);
   };
 
-  const handleAnswerCall = async (callDocId: string, notificationId: string) => {
+  const handleAnswerCall = async (callNotification: Notification) => {
       if (!user || callStatus !== 'receiving') return;
 
+      setIncomingCall(null);
       if(toastIdRef.current) {
         dismiss(toastIdRef.current);
         toastIdRef.current = null;
       }
       
+      const callDocId = callNotification.link;
+      const notificationId = callNotification.id;
+
       pc.current = new RTCPeerConnection(servers);
       setCallId(callDocId);
       
@@ -418,7 +417,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
       } catch (e) {
           console.error("Error accessing media devices on answer.", e);
           toast({ title: "Error", description: "Could not access camera or microphone.", variant: "destructive" });
-          await handleDeclineCall(callDocId, notificationId);
+          await handleDeclineCall(callNotification);
           return;
       }
       
@@ -430,6 +429,7 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
           const stream = event.streams[0];
           if(isMounted.current) {
              remoteStream.current = stream;
+             setCallStatus('connected');
           }
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = stream;
@@ -464,7 +464,6 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
       await batch.commit();
 
       if (isMounted.current) {
-          setIncomingCall(null);
           setCallStatus('connected');
       }
 
@@ -486,8 +485,8 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
   };
 
 
-  const handleDeclineCall = async (callIdToDecline: string, notificationId: string) => {
-    if (!notificationId || !callIdToDecline) return;
+  const handleDeclineCall = async (callNotification: Notification) => {
+    if (!callNotification) return;
 
     if(toastIdRef.current) {
         dismiss(toastIdRef.current);
@@ -496,8 +495,8 @@ export function PersonalChat({ chatId }: PersonalChatProps) {
     
     try {
         const batch = writeBatch(db);
-        const callDocRef = doc(db, 'personalChats', chatId, 'calls', callIdToDecline);
-        const notificationDocRef = doc(db, 'notifications', notificationId);
+        const callDocRef = doc(db, 'personalChats', chatId, 'calls', callNotification.link);
+        const notificationDocRef = doc(db, 'notifications', callNotification.id);
         
         batch.update(callDocRef, { status: 'declined' });
         batch.delete(notificationDocRef);

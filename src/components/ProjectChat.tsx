@@ -52,7 +52,6 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
   }, [projectId]);
 
   useEffect(() => {
-    // Auto-scroll to bottom
     if (scrollAreaRef.current) {
         const viewport = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
         if (viewport) {
@@ -133,10 +132,8 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
         const messagesRef = collection(db, 'projects', projectId, 'messages');
         const newMessageRef = doc(messagesRef);
 
-        const messageText = file ? text : text;
-
         batch.set(newMessageRef, {
-            text: messageText,
+            text: text,
             createdAt: serverTimestamp(),
             senderId: user.uid,
             senderName: userProfile.name,
