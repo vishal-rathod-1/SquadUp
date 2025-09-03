@@ -112,7 +112,6 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   useEffect(() => {
     if (user) {
       const notifsRef = collection(db, 'notifications');
-      // Removed orderBy to prevent index error. Sorting will be done on the client.
       const q = query(notifsRef, where('userId', '==', user.uid));
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
