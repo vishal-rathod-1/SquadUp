@@ -147,7 +147,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       username: data.username,
       email: newUser.email,
       bio: data.bio,
-      skills: data.skills.split(',').map((s: string) => s.trim()).filter(Boolean),
+      skills: data.skills ? data.skills.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
       githubUrl: data.githubUrl,
       linkedinUrl: data.linkedinUrl,
       followers: [],
