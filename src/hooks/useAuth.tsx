@@ -125,10 +125,18 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   useEffect(() => {
     if (user) {
       const notifsRef = collection(db, 'notifications');
-      const q = query(notifsRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+      const q = query(notifsRef, where('userId', '==', user.uid));
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+        
+        // Sort notifications on the client side to avoid needing a composite index
+        notifs.sort((a, b) => {
+          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
+          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
+          return dateB.getTime() - dateA.getTime();
+        });
+
         setNotifications(notifs);
       });
 
@@ -228,5 +236,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-
-    
