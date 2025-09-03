@@ -12,7 +12,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { collection, getDocs, query, where, doc, runTransaction, arrayUnion, arrayRemove, serverTimestamp, getDoc, setDoc, writeBatch, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase-client';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { User as UserIcon, Search, UserPlus, MessageSquare, UserCheck } from 'lucide-react';
+import { User as UserIcon, Search, UserPlus, MessageSquare, UserCheck, Frown } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
@@ -30,53 +30,54 @@ const ProfilesPage: NextPage = () => {
   const [users, setUsers] = useState<UserWithFollowStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const { user: currentUser, userProfile: currentUserProfile, refreshUserProfile } = useAuth();
+  const { user: currentUser, userProfile: currentUserProfile, loading: authLoading, refreshUserProfile } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
 
-  const fetchUsersAndRequests = async () => {
-      if (!currentUser) return;
-      setLoading(true);
-      try {
-        const usersCollection = collection(db, 'users');
-        const q = query(usersCollection, where('__name__', '!=', currentUser.uid)); // Exclude current user
-        const usersSnapshot = await getDocs(q);
-        let usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-        
-        const userIds = usersData.map(u => u.id);
-
-        if (userIds.length > 0) {
-            const sentRequestsQuery = query(collection(db, 'followRequests'), where('fromUserId', '==', currentUser.uid), where('toUserId', 'in', userIds));
-            const receivedRequestsQuery = query(collection(db, 'followRequests'), where('toUserId', '==', currentUser.uid), where('fromUserId', 'in', userIds));
-            
-            const [sentSnapshot, receivedSnapshot] = await Promise.all([getDocs(sentRequestsQuery), getDocs(receivedRequestsQuery)]);
-            
-            const sentRequestsMap = new Map(sentSnapshot.docs.map(doc => [doc.data().toUserId, {id: doc.id, ...doc.data()} as FollowRequest]));
-            const receivedRequestsMap = new Map(receivedSnapshot.docs.map(doc => [doc.data().fromUserId, {id: doc.id, ...doc.data()} as FollowRequest]));
-
-            const usersWithStatus: UserWithFollowStatus[] = usersData.map(user => ({
-                ...user,
-                sentRequest: sentRequestsMap.get(user.id),
-                receivedRequest: receivedRequestsMap.get(user.id)
-            }));
-            setUsers(usersWithStatus);
-        } else {
-            setUsers([]);
-        }
-
-      } catch (error) {
-        console.error("Error fetching users:", error);
-      }
-      setLoading(false);
-    };
-
   useEffect(() => {
-    if(currentUser) {
-        fetchUsersAndRequests();
-    } else {
-        setLoading(false);
+    if (authLoading) return;
+    if (!currentUser) {
+      router.push('/login?message=Please log in to view profiles.');
+      return;
     }
-  }, [currentUser]);
+
+    const fetchUsersAndRequests = async () => {
+        setLoading(true);
+        try {
+          const usersCollection = collection(db, 'users');
+          const q = query(usersCollection, where('__name__', '!=', currentUser.uid)); // Exclude current user
+          const usersSnapshot = await getDocs(q);
+          let usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+          
+          const userIds = usersData.map(u => u.id);
+  
+          if (userIds.length > 0) {
+              const sentRequestsQuery = query(collection(db, 'followRequests'), where('fromUserId', '==', currentUser.uid), where('toUserId', 'in', userIds));
+              const receivedRequestsQuery = query(collection(db, 'followRequests'), where('toUserId', '==', currentUser.uid), where('fromUserId', 'in', userIds));
+              
+              const [sentSnapshot, receivedSnapshot] = await Promise.all([getDocs(sentRequestsQuery), getDocs(receivedRequestsQuery)]);
+              
+              const sentRequestsMap = new Map(sentSnapshot.docs.map(doc => [doc.data().toUserId, {id: doc.id, ...doc.data()} as FollowRequest]));
+              const receivedRequestsMap = new Map(receivedSnapshot.docs.map(doc => [doc.data().fromUserId, {id: doc.id, ...doc.data()} as FollowRequest]));
+  
+              const usersWithStatus: UserWithFollowStatus[] = usersData.map(user => ({
+                  ...user,
+                  sentRequest: sentRequestsMap.get(user.id),
+                  receivedRequest: receivedRequestsMap.get(user.id)
+              }));
+              setUsers(usersWithStatus);
+          } else {
+              setUsers([]);
+          }
+  
+        } catch (error) {
+          console.error("Error fetching users:", error);
+        }
+        setLoading(false);
+      };
+
+    fetchUsersAndRequests();
+  }, [currentUser, authLoading, router]);
   
   const handleSendFollowRequest = async (targetUser: User) => {
       if (!currentUser || !currentUserProfile) return;
@@ -218,6 +219,30 @@ const ProfilesPage: NextPage = () => {
       return <Button onClick={() => handleSendFollowRequest(user)} className="w-full"><UserPlus className="mr-2 h-4 w-4"/>Follow</Button>;
   }
 
+  if (loading || authLoading || !currentUser) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background">
+        <Header />
+        <main className="flex-1 container mx-auto py-8 px-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {[...Array(8)].map((_, i) => (
+                <Card key={i} className="text-center p-6">
+                    <Skeleton className="h-24 w-24 rounded-full mx-auto mb-4" />
+                    <Skeleton className="h-6 w-1/2 mx-auto mb-2" />
+                    <Skeleton className="h-4 w-3/4 mx-auto mb-4" />
+                    <div className="flex flex-wrap gap-2 justify-center">
+                    <Skeleton className="h-5 w-16" />
+                    <Skeleton className="h-5 w-20" />
+                    </div>
+                    <Skeleton className="h-10 w-full mt-6" />
+                </Card>
+                ))}
+            </div>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-background">
       <Header />
@@ -240,22 +265,7 @@ const ProfilesPage: NextPage = () => {
             </div>
         </div>
 
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[...Array(3)].map((_, i) => (
-              <Card key={i} className="text-center p-6">
-                <Skeleton className="h-24 w-24 rounded-full mx-auto mb-4" />
-                <Skeleton className="h-6 w-1/2 mx-auto mb-2" />
-                <Skeleton className="h-4 w-3/4 mx-auto mb-4" />
-                <div className="flex flex-wrap gap-2 justify-center">
-                  <Skeleton className="h-5 w-16" />
-                  <Skeleton className="h-5 w-20" />
-                </div>
-                <Skeleton className="h-10 w-full mt-6" />
-              </Card>
-            ))}
-          </div>
-        ) : filteredUsers.length === 0 ? (
+        {filteredUsers.length === 0 && !loading ? (
           <Alert>
             <UserIcon className="h-4 w-4" />
             <AlertTitle>No Users Found</AlertTitle>

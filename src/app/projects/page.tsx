@@ -15,18 +15,20 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
+import { useRouter } from 'next/navigation';
 
 const ProjectsPage: NextPage = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
-        setLoading(false);
-        return;
+      router.push('/login?message=Please log in to view projects.');
+      return;
     }
 
     const fetchProjects = async () => {
@@ -44,7 +46,7 @@ const ProjectsPage: NextPage = () => {
     };
 
     fetchProjects();
-  }, [user, authLoading]);
+  }, [user, authLoading, router]);
 
   const filteredProjects = useMemo(() => {
     return projects.filter(project => {
@@ -54,6 +56,35 @@ const ProjectsPage: NextPage = () => {
     });
   }, [projects, searchTerm]);
 
+
+  if (loading || authLoading || !user) {
+    return (
+       <div className="flex flex-col min-h-screen bg-background">
+        <Header />
+        <main className="flex-1 container mx-auto py-8 px-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {[...Array(6)].map((_, i) => (
+                <Card key={i}>
+                    <CardHeader>
+                    <Skeleton className="h-6 w-3/4" />
+                    <Skeleton className="h-4 w-full mt-2" />
+                    </CardHeader>
+                    <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                        <Skeleton className="h-6 w-1/4" />
+                        <Skeleton className="h-6 w-1/4" />
+                    </div>
+                    </CardContent>
+                    <CardFooter>
+                    <Skeleton className="h-10 w-full" />
+                    </CardFooter>
+                </Card>
+                ))}
+            </div>
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -85,62 +116,41 @@ const ProjectsPage: NextPage = () => {
             </div>
         </div>
         
-        {(loading || authLoading) ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[...Array(3)].map((_, i) => (
-              <Card key={i}>
-                <CardHeader>
-                  <Skeleton className="h-6 w-3/4" />
-                  <Skeleton className="h-4 w-full mt-2" />
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    <Skeleton className="h-6 w-1/4" />
-                    <Skeleton className="h-6 w-1/4" />
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Skeleton className="h-10 w-full" />
-                </CardFooter>
-              </Card>
-            ))}
-          </div>
-        ) : !user ? (
-            <Alert>
-                <Frown className="h-4 w-4" />
-                <AlertTitle>Please Log In</AlertTitle>
-                <AlertDescription>
-                You need to be logged in to view the available projects.
-                <Button asChild variant="link" className="p-0 h-auto ml-1"><Link href="/login">Login here.</Link></Button>
-                </AlertDescription>
-            </Alert>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {filteredProjects.map((project) => (
-              <Card key={project.id} className="flex flex-col">
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <CardTitle>{project.title}</CardTitle>
-                    <Badge variant={project.status === 'open' ? 'default' : 'secondary'}>{project.status}</Badge>
-                  </div>
-                  <CardDescription className="line-clamp-2">{project.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex-grow">
-                  <div className="flex flex-wrap gap-2">
-                    {(project.tags || []).map((tag: string) => (
-                      <Badge key={tag} variant="secondary">{tag}</Badge>
-                    ))}
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href={`/projects/${project.id}`}>View Project</Link>
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {filteredProjects.length > 0 ? filteredProjects.map((project) => (
+            <Card key={project.id} className="flex flex-col">
+            <CardHeader>
+                <div className="flex justify-between items-start">
+                <CardTitle>{project.title}</CardTitle>
+                <Badge variant={project.status === 'open' ? 'default' : 'secondary'}>{project.status}</Badge>
+                </div>
+                <CardDescription className="line-clamp-2">{project.description}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex-grow">
+                <div className="flex flex-wrap gap-2">
+                {(project.tags || []).map((tag: string) => (
+                    <Badge key={tag} variant="secondary">{tag}</Badge>
+                ))}
+                </div>
+            </CardContent>
+            <CardFooter>
+                <Button asChild variant="outline" className="w-full">
+                <Link href={`/projects/${project.id}`}>View Project</Link>
+                </Button>
+            </CardFooter>
+            </Card>
+        )) : (
+            <div className="col-span-full">
+                <Alert>
+                    <Frown className="h-4 w-4" />
+                    <AlertTitle>No Projects Found</AlertTitle>
+                    <AlertDescription>
+                        No projects match your search term. Try another search or create a new project!
+                    </AlertDescription>
+                </Alert>
+            </div>
         )}
+        </div>
       </main>
     </div>
   );

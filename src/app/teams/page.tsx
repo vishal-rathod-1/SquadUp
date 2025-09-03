@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Users, Frown } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
 
 interface Team {
   id: string;
@@ -25,11 +26,12 @@ const TeamsPage: NextPage = () => {
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     if(authLoading) return;
     if(!user) {
-      setLoading(false);
+      router.push('/login?message=Please log in to view teams.');
       return;
     }
     const fetchTeams = async () => {
@@ -47,16 +49,15 @@ const TeamsPage: NextPage = () => {
     };
 
     fetchTeams();
-  }, [user, authLoading]);
+  }, [user, authLoading, router]);
 
-  return (
-    <div className="flex flex-col min-h-screen bg-background">
-      <Header />
-      <main className="flex-1 container mx-auto py-8 px-4">
-        <h1 className="text-4xl font-bold mb-8">All Teams</h1>
-        {(loading || authLoading) ? (
+  if (loading || authLoading || !user) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background">
+        <Header />
+        <main className="flex-1 container mx-auto py-8 px-4">
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[...Array(3)].map((_, i) => (
+            {[...Array(6)].map((_, i) => (
               <Card key={i}>
                 <CardHeader>
                   <Skeleton className="h-6 w-3/4" />
@@ -71,16 +72,17 @@ const TeamsPage: NextPage = () => {
               </Card>
             ))}
           </div>
-        ) : !user ? (
-          <Alert>
-              <Frown className="h-4 w-4" />
-              <AlertTitle>Please Log In</AlertTitle>
-              <AlertDescription>
-              You need to be logged in to view the teams.
-              <Button asChild variant="link" className="p-0 h-auto ml-1"><Link href="/login">Login here.</Link></Button>
-              </AlertDescription>
-          </Alert>
-        ) : teams.length === 0 ? (
+        </main>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col min-h-screen bg-background">
+      <Header />
+      <main className="flex-1 container mx-auto py-8 px-4">
+        <h1 className="text-4xl font-bold mb-8">All Teams</h1>
+        {teams.length === 0 ? (
           <Alert>
             <Users className="h-4 w-4" />
             <AlertTitle>No Teams Found</AlertTitle>
