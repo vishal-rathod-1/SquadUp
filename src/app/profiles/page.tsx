@@ -45,10 +45,9 @@ const ProfilesPage: NextPage = () => {
         setLoading(true);
         try {
           const usersCollection = collection(db, 'users');
-          // Query for verified users only, excluding the current user
+          // Query for users, excluding the current user
           const q = query(
-            usersCollection, 
-            where('emailVerified', '==', true),
+            usersCollection,
             where('__name__', '!=', currentUser.uid)
           );
           const usersSnapshot = await getDocs(q);
@@ -298,7 +297,7 @@ const ProfilesPage: NextPage = () => {
             <UserIcon className="h-4 w-4" />
             <AlertTitle>No Users Found</AlertTitle>
             <AlertDescription>
-              No verified users match your search. Try a different term.
+              No users match your search. Try a different term.
             </AlertDescription>
           </Alert>
         ) : (
