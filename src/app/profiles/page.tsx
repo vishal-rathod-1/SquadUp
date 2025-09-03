@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import type { User, FollowRequest } from '@/lib/types';
+import type { User } from '@/lib/types';
 import { useEffect, useState, useMemo } from 'react';
-import { collection, getDocs, query, where, doc, runTransaction, arrayUnion, arrayRemove, serverTimestamp, getDoc, setDoc, writeBatch, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, runTransaction, arrayUnion, arrayRemove, serverTimestamp, writeBatch, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase-client';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { User as UserIcon, Search, UserPlus, MessageSquare, UserCheck, Frown } from 'lucide-react';
@@ -19,15 +19,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-
-interface UserWithFollowStatus extends User {
-    sentRequest?: FollowRequest;
-    receivedRequest?: FollowRequest;
-}
 
 const ProfilesPage: NextPage = () => {
-  const [users, setUsers] = useState<UserWithFollowStatus[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const { user: currentUser, userProfile: currentUserProfile, loading: authLoading, refreshUserProfile } = useAuth();
@@ -36,209 +30,56 @@ const ProfilesPage: NextPage = () => {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!currentUser) {
+    if (!currentUser || !currentUserProfile) {
       router.push('/login?message=Please log in to view profiles.');
       return;
     }
 
-    const fetchUsersAndRequests = async () => {
+    const fetchFollowingUsers = async () => {
         setLoading(true);
         try {
-          const usersCollection = collection(db, 'users');
-          // Query for users, excluding the current user
-          const q = query(
-            usersCollection,
-            where('__name__', '!=', currentUser.uid)
-          );
-          const usersSnapshot = await getDocs(q);
-          let usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-          
-          const userIds = usersData.map(u => u.id);
-  
-          if (userIds.length > 0) {
-              const sentRequestsQuery = query(collection(db, 'followRequests'), where('fromUserId', '==', currentUser.uid), where('toUserId', 'in', userIds));
-              const receivedRequestsQuery = query(collection(db, 'followRequests'), where('toUserId', '==', currentUser.uid), where('fromUserId', 'in', userIds));
-              
-              const [sentSnapshot, receivedSnapshot] = await Promise.all([getDocs(sentRequestsQuery), getDocs(receivedRequestsQuery)]);
-              
-              const sentRequestsMap = new Map(sentSnapshot.docs.map(doc => [doc.data().toUserId, {id: doc.id, ...doc.data()} as FollowRequest]));
-              const receivedRequestsMap = new Map(receivedSnapshot.docs.map(doc => [doc.data().fromUserId, {id: doc.id, ...doc.data()} as FollowRequest]));
-  
-              const usersWithStatus: UserWithFollowStatus[] = usersData.map(user => ({
-                  ...user,
-                  sentRequest: sentRequestsMap.get(user.id),
-                  receivedRequest: receivedRequestsMap.get(user.id)
-              }));
-              setUsers(usersWithStatus);
+          if (currentUserProfile.following && currentUserProfile.following.length > 0) {
+            const usersQuery = query(collection(db, 'users'), where(documentId(), 'in', currentUserProfile.following));
+            const usersSnapshot = await getDocs(usersQuery);
+            const usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+            setUsers(usersData);
           } else {
-              setUsers([]);
+            setUsers([]); // Clear users if they are not following anyone
           }
-  
         } catch (error) {
           console.error("Error fetching users:", error);
           toast({
             title: "Error",
-            description: "Could not fetch user profiles. There might be a database configuration issue.",
+            description: "Could not fetch user profiles.",
             variant: "destructive"
           });
         }
         setLoading(false);
       };
 
-    fetchUsersAndRequests();
-  }, [currentUser, authLoading, router, toast]);
+    fetchFollowingUsers();
+  }, [currentUser, currentUserProfile, authLoading, router, toast]);
   
-  const handleSendFollowRequest = async (targetUser: User) => {
-      if (!currentUser || !currentUserProfile) return;
-
-      const newRequestRef = doc(collection(db, "followRequests"));
-      const batch = writeBatch(db);
-
-      batch.set(newRequestRef, {
-          fromUserId: currentUser.uid,
-          fromUserName: currentUserProfile.name,
-          fromUserAvatar: currentUserProfile.avatarUrl,
-          toUserId: targetUser.id,
-          status: "pending",
-          createdAt: serverTimestamp(),
-      });
-
-      const newNotificationRef = doc(collection(db, "notifications"));
-      batch.set(newNotificationRef, {
-        userId: targetUser.id,
-        type: "follow_request",
-        message: `${currentUserProfile.name} sent you a follow request.`,
-        link: `/profiles/${currentUser.uid}`,
-        isRead: false,
-        createdAt: serverTimestamp(),
-      });
-      
-      try {
-          await batch.commit();
-          //await fetchUsersAndRequests();
-          toast({
-              title: "Request Sent",
-              description: `Your follow request to ${targetUser.name} has been sent.`,
-          });
-      } catch (error) {
-          console.error("Error sending follow request:", error);
-          toast({
-              title: "Request Failed",
-              description: "Could not send follow request. Please try again.",
-              variant: "destructive",
-          });
-      }
-  };
-
-  const handleAcceptFollowRequest = async (request: FollowRequest) => {
-      if (!currentUser || !currentUserProfile) return;
-      
-      const batch = writeBatch(db);
-      
-      const requestRef = doc(db, 'followRequests', request.id);
-      batch.update(requestRef, { status: "accepted" });
-
-      const currentUserRef = doc(db, 'users', currentUser.uid);
-      const requesterUserRef = doc(db, 'users', request.fromUserId);
-      batch.update(currentUserRef, { followers: arrayUnion(request.fromUserId) });
-      batch.update(requesterUserRef, { following: arrayUnion(currentUser.uid) });
-      
-      const newNotificationRef = doc(collection(db, "notifications"));
-      batch.set(newNotificationRef, {
-        userId: request.fromUserId,
-        type: "new_follower",
-        message: `${currentUserProfile.name} accepted your follow request.`,
-        link: `/profiles/${currentUser.uid}`,
-        isRead: false,
-        createdAt: serverTimestamp(),
-      });
-
-      try {
-          await batch.commit();
-          await Promise.all([refreshUserProfile()]);
-          toast({
-              title: "Request Accepted",
-              description: `You are now following each other.`,
-          });
-      } catch (error) {
-          console.error("Error accepting request:", error);
-          toast({
-              title: "Action Failed",
-              description: "Could not accept the request.",
-              variant: "destructive",
-          });
-      }
-  };
-
-  const handleUnfollow = async (targetUser: User) => {
-     if (!currentUser || !currentUserProfile) return;
-
-    try {
-        await runTransaction(db, async (transaction) => {
-            const currentUserRef = doc(db, 'users', currentUser.uid);
-            const targetUserRef = doc(db, 'users', targetUser.id);
-            
-            transaction.update(currentUserRef, { following: arrayRemove(targetUser.id) });
-            transaction.update(targetUserRef, { followers: arrayRemove(currentUser.uid) });
-
-            const requestQuery = query(collection(db, 'followRequests'), where('fromUserId', 'in', [currentUser.uid, targetUser.id]), where('toUserId', 'in', [currentUser.uid, targetUser.id]));
-            const requestDocs = await getDocs(requestQuery);
-            requestDocs.forEach(d => transaction.delete(d.ref));
-        });
-
-        await Promise.all([refreshUserProfile()]);
-        toast({
-            title: "Unfollowed",
-            description: `You are no longer following ${targetUser.name}.`,
-        });
-    } catch(error) {
-         console.error("Error unfollowing:", error);
-         toast({
-            title: "Action Failed",
-            description: "Could not unfollow user.",
-            variant: "destructive",
-        });
-    }
-  }
 
   const filteredUsers = useMemo(() => {
-    if (!currentUser) return [];
     return users.filter(user =>
-      user.id !== currentUser.uid && (
         user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (user.skills && user.skills.some(skill => skill.toLowerCase().includes(searchTerm.toLowerCase())))
-      )
     );
-  }, [users, searchTerm, currentUser]);
+  }, [users, searchTerm]);
 
-  const getFollowButton = (user: UserWithFollowStatus) => {
-      if (!currentUser || !currentUserProfile) return null;
-      const isFollowing = currentUserProfile.following?.includes(user.id);
-      
-      if (isFollowing) {
-          return <Button onClick={() => handleUnfollow(user)} variant="secondary" className="w-full"><UserCheck className="mr-2 h-4 w-4"/>Following</Button>;
-      }
-      if(user.receivedRequest?.status === 'pending') {
-          return <Button onClick={() => handleAcceptFollowRequest(user.receivedRequest!)} className="w-full">Accept Request</Button>;
-      }
-      if(user.sentRequest?.status === 'pending') {
-          return <Button variant="outline" className="w-full" disabled>Request Sent</Button>;
-      }
-      return <Button onClick={() => handleSendFollowRequest(user)} className="w-full"><UserPlus className="mr-2 h-4 w-4"/>Follow</Button>;
-  }
 
-  if (authLoading || !currentUser) {
+  if (authLoading || !currentUserProfile) {
     return (
       <div className="flex flex-col min-h-screen bg-background">
         <Header />
         <main className="flex-1 container mx-auto py-8 px-4 flex items-center justify-center">
             <Alert>
                 <UserIcon className="h-4 w-4" />
-                <AlertTitle>Please Log In</AlertTitle>
+                <AlertTitle>Loading Profile...</AlertTitle>
                 <AlertDescription>
-                You need to be logged in to view student profiles. 
-                <Button asChild variant="link" className="p-0 h-auto ml-1"><Link href="/login">Login here.</Link></Button>
+                  Please wait while we load your information.
                 </AlertDescription>
             </Alert>
         </main>
@@ -252,7 +93,7 @@ const ProfilesPage: NextPage = () => {
             <Header />
             <main className="flex-1 container mx-auto py-8 px-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {[...Array(8)].map((_, i) => (
+                    {[...Array(4)].map((_, i) => (
                     <Card key={i} className="text-center p-6">
                         <Skeleton className="h-24 w-24 rounded-full mx-auto mb-4" />
                         <Skeleton className="h-6 w-1/2 mx-auto mb-2" />
@@ -275,8 +116,8 @@ const ProfilesPage: NextPage = () => {
       <Header />
       <main className="flex-1 container mx-auto py-8 px-4">
         <div className="flex-1 mb-8">
-            <h1 className="text-4xl font-bold">Student Profiles</h1>
-            <p className="text-muted-foreground">Find talented students and potential collaborators.</p>
+            <h1 className="text-4xl font-bold">Following</h1>
+            <p className="text-muted-foreground">Profiles of students you follow.</p>
         </div>
 
         <div className="mb-8">
@@ -284,7 +125,7 @@ const ProfilesPage: NextPage = () => {
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                     type="search"
-                    placeholder="Search by name, username, or skill..."
+                    placeholder="Search in your followed users..."
                     className="pl-8 w-full md:w-1/3"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -292,21 +133,17 @@ const ProfilesPage: NextPage = () => {
             </div>
         </div>
 
-        {filteredUsers.length === 0 && !loading ? (
+        {filteredUsers.length === 0 ? (
           <Alert>
             <UserIcon className="h-4 w-4" />
-            <AlertTitle>No Users Found</AlertTitle>
+            <AlertTitle>You're Not Following Anyone Yet</AlertTitle>
             <AlertDescription>
-              No users match your search. Try a different term.
+              You can find and follow users from project pages to see them here.
             </AlertDescription>
           </Alert>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {filteredUsers.map(user => {
-              const isFollowing = currentUserProfile?.following?.includes(user.id);
-              const hasMutualFollow = isFollowing && user.followers?.includes(currentUser!.uid);
-
-              return (
+            {filteredUsers.map(user => (
                  <Card key={user.id} className="text-center flex flex-col">
                   <CardHeader className="items-center p-4">
                     <Link href={`/profiles/${user.id}`}>
@@ -342,11 +179,11 @@ const ProfilesPage: NextPage = () => {
                      )}
                   </CardContent>
                   <CardFooter className="flex flex-col sm:flex-row gap-2 p-4 pt-0">
-                     {getFollowButton(user)}
+                     <Button variant="secondary" className="w-full" asChild><Link href={`/profiles/${user.id}`}>View Profile</Link></Button>
                   </CardFooter>
                 </Card>
               )
-            })}
+            )}
           </div>
         )}
       </main>
@@ -355,3 +192,5 @@ const ProfilesPage: NextPage = () => {
 };
 
 export default ProfilesPage;
+
+    
