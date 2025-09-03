@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
-import { LogIn, LogOut, User as UserIcon, Bell, PhoneOff, PhoneIncoming, Check, X } from "lucide-react";
+import { LogIn, LogOut, User as UserIcon, Bell, Search } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "./ui/sheet";
 import { Menu } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -30,6 +30,7 @@ const NavLinks = ({isMobile = false}: {isMobile?: boolean}) => {
   <>
     <Link href="/projects" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">Projects</Link>
     <Link href="/profiles" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">Profiles</Link>
+    <Link href="/discover" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">Discover</Link>
     {user && (
       <Link href="/chats" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">Chats</Link>
     )}
