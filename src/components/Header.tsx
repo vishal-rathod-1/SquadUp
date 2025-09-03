@@ -29,11 +29,6 @@ const NavLinks = ({isMobile = false}: {isMobile?: boolean}) => {
   <>
     <Link href="/projects" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">Projects</Link>
     <Link href="/profiles" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">Profiles</Link>
-     {user && (
-        <Link href="/chats" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-          {isMobile ? 'Chats' : <MessageSquare className="h-5 w-5" />}
-        </Link>
-      )}
   </>
 )};
 
@@ -144,40 +139,6 @@ export function Header() {
               <div className="h-10 w-20 animate-pulse rounded-md bg-muted" />
             ) : user ? (
               <>
-               <DropdownMenu onOpenChange={handleOpenNotifications}>
-                  <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="relative">
-                          <Bell className="h-5 w-5" />
-                          {hasUnread && <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-destructive" />}
-                      </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-80">
-                      <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {notifications.length > 0 ? (
-                          <DropdownMenuGroup>
-                          {notifications.map(n => (
-                              <DropdownMenuItem key={n.id} asChild>
-                                  <Link href={n.link} className={cn("whitespace-normal items-start justify-between flex", !n.isRead && "font-bold")}>
-                                      <div className="flex items-center gap-2">
-                                         {n.type === 'follow_request' && <UserPlus className="mt-1 h-4 w-4"/>}
-                                         {n.type === 'new_message' && <MessageSquare className="mt-1 h-4 w-4"/>}
-                                         {n.type === 'new_follower' && <UserCheck className="mt-1 h-4 w-4"/>}
-                                         <span>{n.message}</span>
-                                      </div>
-                                      {n.type === 'follow_request' && (
-                                        <Button size="sm" className="ml-2" onClick={(e) => handleAcceptRequest(n, e)}>Accept</Button>
-                                      )}
-                                  </Link>
-                              </DropdownMenuItem>
-                          ))}
-                          </DropdownMenuGroup>
-                      ) : (
-                          <DropdownMenuItem disabled>No new notifications</DropdownMenuItem>
-                      )}
-                  </DropdownMenuContent>
-              </DropdownMenu>
-
                <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-8 w-8 rounded-full">

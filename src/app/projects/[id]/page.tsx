@@ -18,7 +18,6 @@ import { useRouter } from 'next/navigation';
 import { CalendarDays, Users, Trash2, UserCheck, UserX, Send, Phone } from 'lucide-react';
 import { format } from 'date-fns';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { ProjectChat } from '@/components/ProjectChat';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 interface EnrichedTeamMember {
@@ -283,32 +282,6 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
     }
   };
 
-  const handleCallMember = async (targetUserId: string) => {
-    if (!user) return;
-    const chatId = [user.uid, targetUserId].sort().join('_');
-    const chatDocRef = doc(db, 'personalChats', chatId);
-     try {
-        const chatDoc = await getDoc(chatDocRef);
-        if (!chatDoc.exists()) {
-           await setDoc(chatDocRef, {
-                participants: [user.uid, targetUserId],
-                createdAt: serverTimestamp(),
-                lastMessage: null,
-            });
-        }
-        router.push(`/chats?type=personal&id=${chatId}`);
-
-      } catch (error) {
-           console.error("Error creating or getting personal chat:", error);
-           toast({
-            title: "Chat Error",
-            description: "Could not initiate personal chat. Please try again.",
-            variant: "destructive",
-          });
-      }
-  };
-
-
   if (loading) {
     return (
       <div className="flex flex-col min-h-screen bg-background">
@@ -408,11 +381,6 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
                           <p className="text-sm text-muted-foreground">{member.role}</p>
                         </div>
                       </Link>
-                       {user && user.uid !== member.userId && isUserInSquad && (
-                          <Button variant="ghost" size="icon" onClick={() => handleCallMember(member.userId)} aria-label={`Call ${member.name}`}>
-                              <Phone className="h-5 w-5 text-primary" />
-                          </Button>
-                      )}
                     </div>
                 )) : (
                   <p className="text-sm text-muted-foreground">No team members yet. Be the first to join!</p>
@@ -491,13 +459,9 @@ const ProjectDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
              <Card className="sticky top-20">
                 <CardHeader><CardTitle>Group Chat</CardTitle></CardHeader>
                 <CardContent>
-                    {isUserInSquad ? (
-                        <ProjectChat projectId={projectId} />
-                    ) : (
-                        <div className="text-center p-8 bg-muted rounded-lg">
-                            <p className="text-muted-foreground">You must be a member of the squad to view and participate in the chat.</p>
-                        </div>
-                    )}
+                    <div className="text-center p-8 bg-muted rounded-lg">
+                        <p className="text-muted-foreground">Chat is temporarily disabled.</p>
+                    </div>
                 </CardContent>
             </Card>
           </div>

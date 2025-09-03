@@ -113,7 +113,7 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
       form.reset({
         name: userProfile.name,
         bio: userProfile.bio,
-        skills: userProfile.skills.join(', '),
+        skills: userProfile.skills ? userProfile.skills.join(', ') : '',
         githubUrl: userProfile.githubUrl,
         linkedinUrl: userProfile.linkedinUrl,
         resumeUrl: userProfile.resumeUrl,
@@ -170,33 +170,6 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
       });
     }
   };
-
-  const handleChatWithBuddy = async () => {
-      if (!user || !userProfile || isOwnProfile || !hasMutualFollow) return;
-
-      const chatId = [user.uid, userProfile.id].sort().join('_');
-      const chatDocRef = doc(db, 'personalChats', chatId);
-
-      try {
-        const chatDoc = await getDoc(chatDocRef);
-        if (!chatDoc.exists()) {
-           await setDoc(chatDocRef, {
-                participants: [user.uid, userProfile.id],
-                createdAt: serverTimestamp(),
-                lastMessage: null,
-            });
-        }
-        router.push(`/chats?type=personal&id=${chatId}`);
-
-      } catch (error) {
-           console.error("Error creating or getting personal chat:", error);
-           toast({
-            title: "Chat Error",
-            description: "Could not initiate personal chat. Please try again.",
-            variant: "destructive",
-          });
-      }
-  }
 
   const handleSendFollowRequest = async () => {
       if (!user || !currentUserProfile || isOwnProfile) return;
@@ -556,23 +529,6 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
                 user && (
                   <>
                     {getFollowButton()}
-                     <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                           <div className="w-full">
-                            <Button onClick={handleChatWithBuddy} className="w-full" disabled={!hasMutualFollow}>
-                                <MessageSquare className="mr-2 h-4 w-4" />
-                                Chat with Buddy
-                            </Button>
-                           </div>
-                        </TooltipTrigger>
-                        {!hasMutualFollow && (
-                          <TooltipContent>
-                            <p>You must both follow each other to chat.</p>
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-                    </TooltipProvider>
                   </>
                 )
             )}
@@ -620,5 +576,3 @@ const ProfileDetailPage: NextPage<{ params: { id: string } }> = ({ params }) => 
 };
 
 export default ProfileDetailPage;
-
-    

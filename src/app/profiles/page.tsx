@@ -191,47 +191,6 @@ const ProfilesPage: NextPage = () => {
     }
   }
 
-
-  const handleChatWithBuddy = async (targetUser: User) => {
-      if (!currentUser || !currentUserProfile) return;
-      
-      const isFollowing = currentUserProfile.following?.includes(targetUser.id);
-      const hasMutualFollow = isFollowing && targetUser.followers?.includes(currentUser.uid);
-
-      if (!hasMutualFollow) {
-         toast({
-            title: "Cannot Chat",
-            description: "You must both follow each other to start a chat.",
-            variant: "destructive"
-        });
-        return;
-      }
-
-      const chatId = [currentUser.uid, targetUser.id].sort().join('_');
-      const chatDocRef = doc(db, 'personalChats', chatId);
-
-      try {
-        const chatDoc = await getDoc(chatDocRef);
-        if (!chatDoc.exists()) {
-           await setDoc(chatDocRef, {
-                participants: [currentUser.uid, targetUser.id],
-                createdAt: serverTimestamp(),
-                lastMessage: null,
-            });
-        }
-        router.push(`/chats?type=personal&id=${chatId}`);
-
-      } catch (error) {
-           console.error("Error creating or getting personal chat:", error);
-           toast({
-            title: "Chat Error",
-            description: "Could not initiate personal chat. Please try again.",
-            variant: "destructive",
-          });
-      }
-  }
-
-
   const filteredUsers = useMemo(() => {
     if (!currentUser) return [];
     return users.filter(user =>
@@ -346,28 +305,6 @@ const ProfilesPage: NextPage = () => {
                      )}
                   </CardContent>
                   <CardFooter className="flex flex-col sm:flex-row gap-2 p-4 pt-0">
-                    <TooltipProvider>
-                       <Tooltip>
-                         <TooltipTrigger asChild>
-                          <div className='w-full'>
-                            <Button 
-                              variant="outline"
-                              className="w-full"
-                              onClick={() => handleChatWithBuddy(user)}
-                              disabled={!hasMutualFollow}
-                            >
-                              <MessageSquare className="mr-2 h-4 w-4" />
-                              Chat
-                            </Button>
-                          </div>
-                         </TooltipTrigger>
-                         {!hasMutualFollow && (
-                           <TooltipContent>
-                             <p>You must both follow each other to chat.</p>
-                           </TooltipContent>
-                         )}
-                       </Tooltip>
-                     </TooltipProvider>
                      {getFollowButton(user)}
                   </CardFooter>
                 </Card>
