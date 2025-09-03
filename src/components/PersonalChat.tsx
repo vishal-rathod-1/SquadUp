@@ -490,5 +490,3 @@ export function PersonalChat({ chatId }: { chatId: string }) {
     </Card>
   );
 }
-
-    
